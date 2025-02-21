@@ -125,14 +125,14 @@ fn create_rule() -> serde_json::Value {
 fn benchmark_evaluation(c: &mut Criterion) {
     let engine = setup_benchmark_engine();
     let context = create_context();
-    let rules = engine.parse_json(&create_rule()).unwrap();
+    let rule = engine.parse_json(&create_rule()).unwrap();
 
     let mut group = c.benchmark_group("evaluation");
     group.sample_size(100);
 
     group.bench_function("rules_evaluation", |b| {
         b.iter(|| {
-            black_box(engine.evaluate(&rules, &context));
+            black_box(rule.evaluate(&context));
         });
     });
 

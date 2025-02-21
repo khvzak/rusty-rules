@@ -87,7 +87,7 @@ fn test_simple_conditions() {
         }))
         .unwrap();
 
-    assert!(engine.evaluate(&rule, &ctx));
+    assert!(rule.evaluate(&ctx));
 }
 
 #[test]
@@ -112,7 +112,7 @@ fn test_logical_operators() {
         }))
         .unwrap();
 
-    assert!(engine.evaluate(&rule, &ctx));
+    assert!(rule.evaluate(&ctx));
 }
 
 #[test]
@@ -129,7 +129,7 @@ fn test_regex_matching() {
         }))
         .unwrap();
 
-    assert!(engine.evaluate(&rule, &ctx));
+    assert!(rule.evaluate(&ctx));
 }
 
 #[test]
@@ -143,7 +143,7 @@ fn test_ip_matching() {
         }))
         .unwrap();
 
-    assert!(engine.evaluate(&rule, &ctx));
+    assert!(rule.evaluate(&ctx));
 }
 
 #[test]
@@ -158,7 +158,7 @@ fn test_number_comparisons() {
         ]))
         .unwrap();
 
-    assert!(engine.evaluate(&rule, &ctx));
+    assert!(rule.evaluate(&ctx));
 }
 
 #[test]
@@ -178,7 +178,7 @@ fn test_empty_rule() {
     let ctx = create_test_context();
 
     let rule = engine.parse_json(&json!({})).unwrap();
-    assert!(engine.evaluate(&rule, &ctx));
+    assert!(rule.evaluate(&ctx));
 }
 
 #[test]
@@ -209,13 +209,11 @@ fn test_invalid_ip() {
 fn test_type_mismatch() {
     let engine = setup_engine();
 
-    assert!(
-        engine
-            .parse_json(&json!({
-                "port": "8080"  // port expects a number, but got string
-            }))
-            .is_err()
-    );
+    assert!(engine
+        .parse_json(&json!({
+            "port": "8080"  // port expects a number, but got string
+        }))
+        .is_err());
 }
 
 #[test]
@@ -253,5 +251,5 @@ fn test_complex_rules() {
         }))
         .unwrap();
 
-    assert!(engine.evaluate(&rule, &ctx));
+    assert!(rule.evaluate(&ctx));
 }

@@ -30,6 +30,26 @@ impl Value<'_> {
     }
 }
 
+impl PartialOrd for Value<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (self, other) {
+            (Value::String(s), Value::String(t)) => s.partial_cmp(t),
+            (Value::Number(i), Value::Number(j)) => {
+                if let (Some(i), Some(j)) = (i.as_i64(), j.as_i64()) {
+                    i.partial_cmp(&j)
+                } else if let (Some(i), Some(j)) = (i.as_f64(), j.as_f64()) {
+                    i.partial_cmp(&j)
+                } else {
+                    None
+                }
+            }
+            (Value::Bool(i), Value::Bool(j)) => i.partial_cmp(j),
+            (Value::Ip(i), Value::Ip(j)) => i.partial_cmp(j),
+            _ => None,
+        }
+    }
+}
+
 impl TryFrom<&serde_json::Value> for Value<'_> {
     type Error = ();
 
@@ -94,11 +114,11 @@ pub enum Matcher {
 }
 
 /// Represents a rule, which can be a condition or a logical combination
-pub enum Rule {
-    Condition(FetcherKey, Matcher),
-    Any(Vec<Rule>),
-    All(Vec<Rule>),
-    Not(Box<Rule>),
+pub enum Rule<Ctx> {
+    Any(Vec<Self>),
+    All(Vec<Self>),
+    Not(Box<Self>),
+    Leaf(Box<dyn Fn(FetcherFn<Ctx>, &Ctx) -> bool>, FetcherFn<Ctx>),
 }
 
 /// Represents a fetcher key like "header(host)" with name and arguments
@@ -158,23 +178,14 @@ impl<Ctx> Engine<Ctx> {
     }
 
     /// Parses a JSON value into a Rule
-    pub fn parse_json(&self, json: &JsonValue) -> Result<Rule, String> {
+    pub fn parse_json(&self, json: &JsonValue) -> Result<Rule<Ctx>, String> {
         Ok(Rule::All(self.parse_rules(&json)?))
     }
 
     /// Evaluates a rule against a context
-    pub fn evaluate(&self, rule: &Rule, context: &Ctx) -> bool {
+    pub fn evaluate(&self, rule: &Rule<Ctx>, context: &Ctx) -> bool {
         match rule {
-            Rule::Condition(fetcher_key, matcher) => {
-                if let Some(fetcher) = self.registry.get(&fetcher_key.name) {
-                    match (fetcher.func)(context, &fetcher_key.args) {
-                        Some(value) => self.matches(&value, matcher),
-                        None => false,
-                    }
-                } else {
-                    false // Unknown fetcher (is should not be possible though)
-                }
-            }
+            Rule::Leaf(test_fn, fetcher_fn) => test_fn(*fetcher_fn, context),
             Rule::Any(subrules) => subrules.iter().any(|r| self.evaluate(r, context)),
             Rule::All(subrules) => subrules.iter().all(|r| self.evaluate(r, context)),
             Rule::Not(subrule) => !self.evaluate(subrule, context),
@@ -182,7 +193,7 @@ impl<Ctx> Engine<Ctx> {
     }
 
     /// Parses a JSON value into a Vec<Rule>
-    fn parse_rules(&self, json: &JsonValue) -> Result<Vec<Rule>, String> {
+    fn parse_rules(&self, json: &JsonValue) -> Result<Vec<Rule<Ctx>>, String> {
         match json {
             JsonValue::Object(map) => {
                 let mut rules = Vec::with_capacity(map.len());
@@ -198,13 +209,15 @@ impl<Ctx> Engine<Ctx> {
                             rules.push(Rule::Not(Box::new(Rule::All(self.parse_rules(value)?))));
                         }
                         _ => {
-                            let fetcher_key = self.parse_fetcher_key(key)?;
+                            let FetcherKey { name, args } = self.parse_fetcher_key(key)?;
                             let fetcher = self
                                 .registry
-                                .get(&fetcher_key.name)
-                                .ok_or_else(|| format!("Unknown fetcher: {}", fetcher_key.name))?;
+                                .get(&name)
+                                .ok_or_else(|| format!("Unknown fetcher: {}", name))?;
                             let matcher = self.parse_matcher(fetcher.matcher_type, value)?;
-                            rules.push(Rule::Condition(fetcher_key, matcher));
+
+                            let test_fn = Self::compile_condition(args, matcher);
+                            rules.push(Rule::Leaf(test_fn, fetcher.func));
                         }
                     }
                 }
@@ -218,6 +231,68 @@ impl<Ctx> Engine<Ctx> {
                     })
             }
             _ => Err("Rule must be a JSON object or array".to_string()),
+        }
+    }
+
+    fn compile_condition(
+        fetcher_args: Vec<String>,
+        matcher: Matcher,
+    ) -> Box<dyn Fn(FetcherFn<Ctx>, &Ctx) -> bool> {
+        match matcher {
+            Matcher::Equal(right) => Box::new(move |fetcher, ctx| {
+                fetcher(ctx, &fetcher_args)
+                    .map(|left| left == right)
+                    .unwrap_or_default()
+            }),
+            Matcher::LessThan(right) => Box::new(move |fetcher, ctx| {
+                fetcher(ctx, &fetcher_args)
+                    .map(|left| left < right)
+                    .unwrap_or_default()
+            }),
+            Matcher::LessThanOrEqual(right) => Box::new(move |fetcher, ctx| {
+                fetcher(ctx, &fetcher_args)
+                    .map(|left| left <= right)
+                    .unwrap_or_default()
+            }),
+            Matcher::GreaterThan(right) => Box::new(move |fetcher, ctx| {
+                fetcher(ctx, &fetcher_args)
+                    .map(|left| left > right)
+                    .unwrap_or_default()
+            }),
+            Matcher::GreaterThanOrEqual(right) => Box::new(move |fetcher, ctx| {
+                fetcher(ctx, &fetcher_args)
+                    .map(|left| left >= right)
+                    .unwrap_or_default()
+            }),
+            Matcher::InList(list) => Box::new(move |fetcher, ctx| {
+                fetcher(ctx, &fetcher_args)
+                    .map(|val| list.contains(&val))
+                    .unwrap_or_default()
+            }),
+            Matcher::Regex(regex) => Box::new(move |fetcher, ctx| {
+                fetcher(ctx, &fetcher_args)
+                    .map(|val| match val {
+                        Value::String(s) => regex.is_match(&s),
+                        _ => false,
+                    })
+                    .unwrap_or_default()
+            }),
+            Matcher::RegexSet(regex_set) => Box::new(move |fetcher, ctx| {
+                fetcher(ctx, &fetcher_args)
+                    .map(|val| match val {
+                        Value::String(s) => regex_set.is_match(&s),
+                        _ => false,
+                    })
+                    .unwrap_or_default()
+            }),
+            Matcher::IpSet(set) => Box::new(move |fetcher, ctx| {
+                fetcher(ctx, &fetcher_args)
+                    .map(|val| match val {
+                        Value::Ip(ip) => set.longest_match(&IpNet::from(ip)).is_some(),
+                        _ => false,
+                    })
+                    .unwrap_or_default()
+            }),
         }
     }
 
@@ -415,52 +490,5 @@ impl<Ctx> Engine<Ctx> {
             ("in", _) => Err("`in` value must be an array of numbers".to_string()),
             _ => Err(format!("Unsupported operator: {op}")),
         }
-    }
-
-    /// Checks if value matches a condition
-    fn matches(&self, value: &Value, matcher: &Matcher) -> bool {
-        match (value, matcher) {
-            // String comparisons
-            (Value::String(s), Matcher::Equal(Value::String(t))) => s == t,
-            (Value::String(s), Matcher::LessThan(Value::String(t))) => s < t,
-            (Value::String(s), Matcher::LessThanOrEqual(Value::String(t))) => s <= t,
-            (Value::String(s), Matcher::GreaterThan(Value::String(t))) => s > t,
-            (Value::String(s), Matcher::GreaterThanOrEqual(Value::String(t))) => s >= t,
-            (Value::String(_), Matcher::InList(list)) => list.contains(value),
-            // String regex matching
-            (Value::String(s), Matcher::Regex(regex)) => regex.is_match(s),
-            (Value::String(s), Matcher::RegexSet(regex_set)) => regex_set.is_match(s),
-            // Number comparisons
-            (Value::Number(i), Matcher::Equal(Value::Number(j))) => i == j,
-            (Value::Number(i), Matcher::LessThan(Value::Number(j))) => {
-                matches!(cmp_number(i, j), Some(Ordering::Less))
-            }
-            (Value::Number(i), Matcher::LessThanOrEqual(Value::Number(j))) => {
-                matches!(cmp_number(i, j), Some(Ordering::Less | Ordering::Equal))
-            }
-            (Value::Number(i), Matcher::GreaterThan(Value::Number(j))) => {
-                cmp_number(i, j) == Some(Ordering::Greater)
-            }
-            (Value::Number(i), Matcher::GreaterThanOrEqual(Value::Number(j))) => {
-                matches!(cmp_number(i, j), Some(Ordering::Greater | Ordering::Equal))
-            }
-            (Value::Number(_), Matcher::InList(list)) => list.contains(value),
-            // IP comparisons
-            (Value::Ip(ip), Matcher::IpSet(set)) => set.longest_match(&IpNet::from(*ip)).is_some(),
-            // Boolean comparisons
-            (Value::Bool(i), Matcher::Equal(Value::Bool(j))) => i == j,
-            // Type mismatch or unsupported matcher
-            _ => false,
-        }
-    }
-}
-
-fn cmp_number(i: &Number, j: &Number) -> Option<Ordering> {
-    if let (Some(i), Some(j)) = (i.as_i64(), j.as_i64()) {
-        i.partial_cmp(&j)
-    } else if let (Some(i), Some(j)) = (i.as_f64(), j.as_f64()) {
-        i.partial_cmp(&j)
-    } else {
-        None
     }
 }

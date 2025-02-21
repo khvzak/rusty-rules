@@ -1,0 +1,18 @@
+[package]
+name = "rusty-rules"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+regex = "1.11"
+ipnet = "2"
+ipnet-trie = "0.2"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "benchmark"
+harness = false

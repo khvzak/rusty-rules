@@ -112,7 +112,6 @@ enum Matcher {
 }
 
 /// Represents a rule, which can be a condition or a logical combination
-#[derive(Clone)]
 pub enum Rule<Ctx> {
     Any(Vec<Self>),
     All(Vec<Self>),
@@ -120,9 +119,25 @@ pub enum Rule<Ctx> {
     Leaf(Condition<Ctx>),
 }
 
+impl<Ctx> Clone for Rule<Ctx> {
+    fn clone(&self) -> Self {
+        match self {
+            Rule::Any(rules) => Rule::Any(rules.clone()),
+            Rule::All(rules) => Rule::All(rules.clone()),
+            Rule::Not(rule) => Rule::Not(rule.clone()),
+            Rule::Leaf(condition) => Rule::Leaf(condition.clone()),
+        }
+    }
+}
+
 #[doc(hidden)]
-#[derive(Clone)]
 pub struct Condition<Ctx>(Rc<dyn Fn(FetcherFn<Ctx>, &Ctx) -> bool>, FetcherFn<Ctx>);
+
+impl<Ctx> Clone for Condition<Ctx> {
+    fn clone(&self) -> Self {
+        Condition(self.0.clone(), self.1)
+    }
+}
 
 impl<Ctx> Rule<Ctx> {
     #[inline(always)]
@@ -169,14 +184,21 @@ pub enum MatcherType {
 pub type FetcherFn<Ctx> = for<'a> fn(&'a Ctx, &[String]) -> Option<Value<'a>>;
 
 /// Holds a fetcher's required matcher type and function
-#[derive(Clone)]
 struct Fetcher<Ctx> {
     matcher_type: MatcherType,
     func: FetcherFn<Ctx>,
 }
 
+impl<Ctx> Clone for Fetcher<Ctx> {
+    fn clone(&self) -> Self {
+        Fetcher {
+            matcher_type: self.matcher_type,
+            func: self.func,
+        }
+    }
+}
+
 /// Rules engine for registering fetchers and parsing rules
-#[derive(Clone)]
 pub struct Engine<Ctx> {
     registry: HashMap<String, Fetcher<Ctx>>,
 }
@@ -184,6 +206,14 @@ pub struct Engine<Ctx> {
 impl<Ctx> Default for Engine<Ctx> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl<Ctx> Clone for Engine<Ctx> {
+    fn clone(&self) -> Self {
+        Engine {
+            registry: self.registry.clone(),
+        }
     }
 }
 

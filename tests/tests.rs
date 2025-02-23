@@ -13,6 +13,7 @@ struct TestContext {
     params: HashMap<String, String>,
     ip: IpAddr,
     port: i64,
+    status: u16,
 }
 
 fn create_test_context() -> TestContext {
@@ -33,6 +34,7 @@ fn create_test_context() -> TestContext {
         },
         ip: "127.0.0.1".parse().unwrap(),
         port: 8080,
+        status: 200,
     }
 }
 
@@ -71,6 +73,11 @@ fn setup_engine() -> Engine<TestContext> {
         Some(Value::from(ctx.port))
     });
 
+    // Register status fetcher
+    engine.register_fetcher("status", MatcherType::Number, |ctx, _args| {
+        Some(Value::from(ctx.status as i64))
+    });
+
     engine.register_operator("starts_with", |matcher_type, json| {
         if matcher_type != MatcherType::String {
             return Err("starts_with only supports String matcher type".to_string());
@@ -82,6 +89,28 @@ fn setup_engine() -> Engine<TestContext> {
         Ok(Box::new(move |value| {
             (value.as_str())
                 .map(|s| s.starts_with(&prefix))
+                .unwrap_or_default()
+        }))
+    });
+
+    engine.register_operator("between", |matcher_type, json| {
+        if matcher_type != MatcherType::Number {
+            return Err("between only supports Number matcher type".to_string());
+        }
+        let range = match json {
+            serde_json::Value::Array(arr) => {
+                if arr.len() != 2 {
+                    return Err("between requires an array of two numbers".to_string());
+                }
+                let min = arr[0].as_i64().ok_or("min value must be a number")?;
+                let max = arr[1].as_i64().ok_or("max value must be a number")?;
+                (min, max)
+            }
+            _ => return Err("between requires an array of two numbers".to_string()),
+        };
+        Ok(Box::new(move |value| {
+            (value.as_i64())
+                .map(|n| n >= range.0 && n <= range.1)
                 .unwrap_or_default()
         }))
     });
@@ -281,6 +310,23 @@ fn test_custom_operator() {
             }
         }))
         .unwrap();
-
     assert!(rule.evaluate(&ctx));
+
+    let rule = engine
+        .parse_json(&json!({
+            "status": {
+                "between": [200, 299]
+            }
+        }))
+        .unwrap();
+    assert!(rule.evaluate(&ctx));
+
+    let rule = engine
+        .parse_json(&json!({
+            "status": {
+                "between": [300, 399]
+            }
+        }))
+        .unwrap();
+    assert!(!rule.evaluate(&ctx));
 }

@@ -3,7 +3,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use rusty_rules::{Engine, MatcherType, Value};
+use rusty_rules::{Engine, IpMatcher, NumberMatcher, RegexMatcher, StringMatcher, Value};
 use serde_json::json;
 
 // Test context structure (copied from your tests)
@@ -48,29 +48,29 @@ fn setup_benchmark_engine() -> Engine<TestContext> {
     let mut engine = Engine::new();
 
     // Register all fetchers
-    engine.register_fetcher("method", MatcherType::String, |ctx: &TestContext, _args| {
+    engine.register_fetcher("method", StringMatcher, |ctx: &TestContext, _args| {
         Some(Value::from(ctx.method))
     });
 
-    engine.register_fetcher("path", MatcherType::Regex, |ctx, _args| {
+    engine.register_fetcher("path", RegexMatcher, |ctx, _args| {
         Some(Value::from(&ctx.path))
     });
 
-    engine.register_fetcher("header", MatcherType::String, |ctx, args| {
+    engine.register_fetcher("header", StringMatcher, |ctx, args| {
         args.first()
             .and_then(|name| ctx.headers.get(name))
             .map(Value::from)
     });
 
-    engine.register_fetcher("param", MatcherType::String, |ctx, args| {
+    engine.register_fetcher("param", StringMatcher, |ctx, args| {
         args.first()
             .and_then(|name| ctx.params.get(name))
             .map(Value::from)
     });
 
-    engine.register_fetcher("ip", MatcherType::Ip, |ctx, _args| Some(Value::Ip(ctx.ip)));
+    engine.register_fetcher("ip", IpMatcher, |ctx, _args| Some(Value::Ip(ctx.ip)));
 
-    engine.register_fetcher("port", MatcherType::Number, |ctx, _args| {
+    engine.register_fetcher("port", NumberMatcher, |ctx, _args| {
         Some(Value::from(ctx.port))
     });
 
@@ -125,7 +125,7 @@ fn create_rule() -> serde_json::Value {
 fn benchmark_evaluation(c: &mut Criterion) {
     let engine = setup_benchmark_engine();
     let context = create_context();
-    let rule = engine.parse_json(&create_rule()).unwrap();
+    let rule = engine.parse_value(&create_rule()).unwrap();
 
     let mut group = c.benchmark_group("evaluation");
     group.sample_size(100);

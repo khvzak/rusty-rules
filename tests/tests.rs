@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
-use rusty_rules::{Engine, MatcherType, Value};
+use rusty_rules::{Engine, IpMatcher, NumberMatcher, RegexMatcher, StringMatcher, Value};
 use serde_json::json;
 
 // Test context structure
@@ -42,49 +42,46 @@ fn setup_engine() -> Engine<TestContext> {
     let mut engine = Engine::new();
 
     // Register method fetcher
-    engine.register_fetcher("method", MatcherType::String, |ctx: &TestContext, _args| {
+    engine.register_fetcher("method", StringMatcher, |ctx: &TestContext, _args| {
         Some(Value::from(&ctx.method))
     });
 
     // Register path fetcher
-    engine.register_fetcher("path", MatcherType::Regex, |ctx, _args| {
+    engine.register_fetcher("path", RegexMatcher, |ctx, _args| {
         Some(Value::from(&ctx.path))
     });
 
     // Register header fetcher
-    engine.register_fetcher("header", MatcherType::String, |ctx, args| {
+    engine.register_fetcher("header", StringMatcher, |ctx, args| {
         args.first()
             .and_then(|name| ctx.headers.get(name))
             .map(Value::from)
     });
 
     // Register param fetcher
-    engine.register_fetcher("param", MatcherType::String, |ctx, args| {
+    engine.register_fetcher("param", StringMatcher, |ctx, args| {
         args.first()
             .and_then(|name| ctx.params.get(name))
             .map(Value::from)
     });
 
     // Register ip fetcher
-    engine.register_fetcher("ip", MatcherType::Ip, |ctx, _args| Some(Value::Ip(ctx.ip)));
+    engine.register_fetcher("ip", IpMatcher, |ctx, _args| Some(Value::Ip(ctx.ip)));
 
     // Register port fetcher
-    engine.register_fetcher("port", MatcherType::Number, |ctx, _args| {
+    engine.register_fetcher("port", NumberMatcher, |ctx, _args| {
         Some(Value::from(ctx.port))
     });
 
     // Register status fetcher
-    engine.register_fetcher("status", MatcherType::Number, |ctx, _args| {
+    engine.register_fetcher("status", NumberMatcher, |ctx, _args| {
         Some(Value::from(ctx.status as i64))
     });
 
-    engine.register_operator("starts_with", |matcher_type, json| {
-        if matcher_type != MatcherType::String {
-            return Err("starts_with only supports String matcher type".to_string());
-        }
+    engine.register_operator("starts_with", |json| {
         let prefix = match json {
             serde_json::Value::String(s) => s.clone(),
-            _ => return Err("starts_with requires a string prefix".to_string()),
+            _ => return Err("`starts_with` requires a string prefix".to_string()),
         };
         Ok(Box::new(move |value| {
             (value.as_str())
@@ -93,10 +90,7 @@ fn setup_engine() -> Engine<TestContext> {
         }))
     });
 
-    engine.register_operator("between", |matcher_type, json| {
-        if matcher_type != MatcherType::Number {
-            return Err("between only supports Number matcher type".to_string());
-        }
+    engine.register_operator("between", |json| {
         let range = match json {
             serde_json::Value::Array(arr) => {
                 if arr.len() != 2 {
@@ -124,7 +118,7 @@ fn test_simple_conditions() {
     let ctx = create_test_context();
 
     let rule = engine
-        .parse_json(&json!({
+        .parse_value(&json!({
             "method": "GET",
             "header(host)": "www.example.com",
             "port": {">": 80}
@@ -140,7 +134,7 @@ fn test_logical_operators() {
     let ctx = create_test_context();
 
     let rule = engine
-        .parse_json(&json!({
+        .parse_value(&json!({
             "any": [
                 {"method": "POST"},
                 {
@@ -165,7 +159,7 @@ fn test_regex_matching() {
     let ctx = create_test_context();
 
     let rule = engine
-        .parse_json(&json!({
+        .parse_value(&json!({
             "path": "^/api/v1/.*$",
             "header(host)": {
                 "re": "^www\\.example\\.com$"
@@ -182,7 +176,7 @@ fn test_ip_matching() {
     let ctx = create_test_context();
 
     let rule = engine
-        .parse_json(&json!({
+        .parse_value(&json!({
             "ip": ["127.0.0.1", "::1/128"]
         }))
         .unwrap();
@@ -196,7 +190,7 @@ fn test_number_comparisons() {
     let ctx = create_test_context();
 
     let rule = engine
-        .parse_json(&json!([
+        .parse_value(&json!([
             {"port": {">=": 8000}},
             {"port": {"<": 9000}},
         ]))
@@ -209,7 +203,7 @@ fn test_number_comparisons() {
 fn test_unknown_fetcher() {
     let engine = setup_engine();
 
-    let result = engine.parse_json(&json!({
+    let result = engine.parse_value(&json!({
         "unknown_fetcher": "value"
     }));
 
@@ -221,7 +215,7 @@ fn test_empty_rule() {
     let engine = setup_engine();
     let ctx = create_test_context();
 
-    let rule = engine.parse_json(&json!({})).unwrap();
+    let rule = engine.parse_value(&json!({})).unwrap();
     assert!(rule.evaluate(&ctx));
 }
 
@@ -229,7 +223,7 @@ fn test_empty_rule() {
 fn test_invalid_regex() {
     let engine = setup_engine();
 
-    let result = engine.parse_json(&json!({
+    let result = engine.parse_value(&json!({
         "path": {
             "re": "[" // invalid regex pattern
         }
@@ -242,7 +236,7 @@ fn test_invalid_regex() {
 fn test_invalid_ip() {
     let engine = setup_engine();
 
-    let result = engine.parse_json(&json!({
+    let result = engine.parse_value(&json!({
         "ip": "not.an.ip.address"
     }));
 
@@ -254,7 +248,7 @@ fn test_type_mismatch() {
     let engine = setup_engine();
 
     assert!(engine
-        .parse_json(&json!({
+        .parse_value(&json!({
             "port": "8080"  // port expects a number, but got string
         }))
         .is_err());
@@ -266,7 +260,7 @@ fn test_complex_rules() {
     let ctx = create_test_context();
 
     let rule = engine
-        .parse_json(&json!({
+        .parse_value(&json!({
             "all": [
                 {
                     "any": [
@@ -304,7 +298,7 @@ fn test_custom_operator() {
     let ctx = create_test_context();
 
     let rule = engine
-        .parse_json(&json!({
+        .parse_value(&json!({
             "header(host)": {
                 "starts_with": "www."
             }
@@ -313,7 +307,7 @@ fn test_custom_operator() {
     assert!(rule.evaluate(&ctx));
 
     let rule = engine
-        .parse_json(&json!({
+        .parse_value(&json!({
             "status": {
                 "between": [200, 299]
             }
@@ -322,7 +316,7 @@ fn test_custom_operator() {
     assert!(rule.evaluate(&ctx));
 
     let rule = engine
-        .parse_json(&json!({
+        .parse_value(&json!({
             "status": {
                 "between": [300, 399]
             }

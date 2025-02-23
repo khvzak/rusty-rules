@@ -1,11 +1,11 @@
-use crate::MatcherType;
-
+/// Represents possible errors that can occur during rules parsing.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     /// Triggered when a fetcher specified in the JSON rule isn’t registered in the engine.
     #[error("Unknown fetcher: {0}")]
     UnknownFetcher(String),
 
+    /// Triggered when a fetcher specified in the JSON rule is invalid.
     #[error("Invalid fetcher '{name}': {error}")]
     InvalidFetcher { name: String, error: String },
 
@@ -18,18 +18,18 @@ pub enum Error {
     InvalidJson(String),
 
     /// Occurs when a matcher is used with an incompatible json value type.
-    #[error("Error in {matcher_type:?} matcher for '{fetcher_name}': {error}")]
+    #[error("Error in {name} matcher for '{fetcher}': {error}")]
     Matcher {
-        matcher_type: MatcherType,
-        fetcher_name: String,
+        name: String,
+        fetcher: String,
         error: String,
     },
 
-    /// Triggered when an operator specified in the JSON rule is used wrong.
-    #[error("Error in '{name}' operator for '{fetcher_name}': {error}")]
+    /// Triggered when an operator is used with an incompatible json value type.
+    #[error("Error in '{name}' operator for '{fetcher}': {error}")]
     Operator {
         name: String,
-        fetcher_name: String,
+        fetcher: String,
         error: String,
     },
 }
@@ -42,22 +42,18 @@ impl Error {
         }
     }
 
-    pub(crate) fn matcher(
-        matcher_type: MatcherType,
-        fetcher_name: &str,
-        error: impl ToString,
-    ) -> Self {
+    pub(crate) fn matcher(name: &str, fetcher: &str, error: impl ToString) -> Self {
         Error::Matcher {
-            matcher_type,
-            fetcher_name: fetcher_name.to_string(),
+            name: name.to_string(),
+            fetcher: fetcher.to_string(),
             error: error.to_string(),
         }
     }
 
-    pub(crate) fn operator(name: &str, fetcher_name: &str, error: impl ToString) -> Self {
+    pub(crate) fn operator(name: &str, fetcher: &str, error: impl ToString) -> Self {
         Error::Operator {
             name: name.to_string(),
-            fetcher_name: fetcher_name.to_string(),
+            fetcher: fetcher.to_string(),
             error: error.to_string(),
         }
     }

@@ -47,7 +47,7 @@ fn setup_engine() -> Engine<TestContext> {
     });
 
     // Register path fetcher
-    engine.register_fetcher("path", MatcherType::StringRe, |ctx, _args| {
+    engine.register_fetcher("path", MatcherType::Regex, |ctx, _args| {
         Some(Value::from(&ctx.path))
     });
 

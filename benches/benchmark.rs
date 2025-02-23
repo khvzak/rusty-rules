@@ -52,7 +52,7 @@ fn setup_benchmark_engine() -> Engine<TestContext> {
         Some(Value::from(ctx.method))
     });
 
-    engine.register_fetcher("path", MatcherType::StringRe, |ctx, _args| {
+    engine.register_fetcher("path", MatcherType::Regex, |ctx, _args| {
         Some(Value::from(&ctx.path))
     });
 

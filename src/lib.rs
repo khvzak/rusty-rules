@@ -4,9 +4,14 @@ use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::net::IpAddr;
 use std::rc::Rc;
+use std::result::Result as StdResult;
 
 use ipnet_trie::IpnetTrie;
 use serde_json::{Number, Value as JsonValue};
+
+pub use error::Error;
+
+pub(crate) type Result<T> = std::result::Result<T, error::Error>;
 
 /// Represents possible values returned by fetchers
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -91,7 +96,7 @@ impl PartialOrd for Value<'_> {
 impl<'a> TryFrom<&'a serde_json::Value> for Value<'a> {
     type Error = ();
 
-    fn try_from(value: &'a serde_json::Value) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a serde_json::Value) -> StdResult<Self, Self::Error> {
         match value {
             serde_json::Value::String(s) => Ok(Value::String(Cow::Borrowed(s))),
             serde_json::Value::Number(n) => Ok(Value::Number(n.clone())),
@@ -133,7 +138,7 @@ impl TryFrom<f64> for Value<'_> {
     type Error = ();
 
     #[inline(always)]
-    fn try_from(f: f64) -> Result<Self, Self::Error> {
+    fn try_from(f: f64) -> StdResult<Self, Self::Error> {
         Ok(Value::Number(serde_json::Number::from_f64(f).ok_or(())?))
     }
 }
@@ -215,7 +220,7 @@ pub enum MatcherType {
     /// String with default exact matching
     String,
     /// String with default regex matching
-    StringRe,
+    Regex,
     Number,
     Bool,
     Ip,
@@ -225,7 +230,7 @@ pub enum MatcherType {
 pub type FetcherFn<Ctx> = for<'a> fn(&'a Ctx, &[String]) -> Option<Value<'a>>;
 
 /// Callback type for operators (zero-sized)
-pub type OperatorFn = fn(MatcherType, &JsonValue) -> Result<OperatorCheckFn, String>;
+pub type OperatorFn = fn(MatcherType, &JsonValue) -> StdResult<OperatorCheckFn, String>;
 
 /// Callback type for operator check function
 pub type OperatorCheckFn = Box<dyn Fn(Value) -> bool>;
@@ -292,8 +297,8 @@ impl<Ctx> Engine<Ctx> {
     }
 
     /// Parses a JSON value into a [`Rule`] using the registered fetchers
-    pub fn parse_json(&self, json: &JsonValue) -> Result<Rule<Ctx>, String> {
-        Ok(Rule::all(self.parse_rules(json)?))
+    pub fn parse_json(&self, json: &JsonValue) -> Result<Rule<Ctx>> {
+        self.parse_rules(json).map(Rule::all)
     }
 }
 
@@ -309,4 +314,22 @@ impl<Ctx> Rule<Ctx> {
     }
 }
 
+pub(crate) trait JsonValueExt {
+    fn type_name(&self) -> &'static str;
+}
+
+impl JsonValueExt for JsonValue {
+    fn type_name(&self) -> &'static str {
+        match self {
+            JsonValue::String(_) => "string",
+            JsonValue::Number(_) => "number",
+            JsonValue::Bool(_) => "boolean",
+            JsonValue::Array(_) => "array",
+            JsonValue::Object(_) => "object",
+            JsonValue::Null => "null",
+        }
+    }
+}
+
+mod error;
 mod parser;

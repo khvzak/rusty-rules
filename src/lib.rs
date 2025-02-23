@@ -26,6 +26,46 @@ impl Value<'_> {
             Value::Ip(ip) => Value::Ip(ip),
         }
     }
+
+    /// Returns the value as a string if it is a string
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            Value::String(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// Returns the value as an integer if it is a number
+    pub fn as_i64(&self) -> Option<i64> {
+        match self {
+            Value::Number(n) => n.as_i64(),
+            _ => None,
+        }
+    }
+
+    /// Returns the value as a float if it is a number
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            Value::Number(n) => n.as_f64(),
+            _ => None,
+        }
+    }
+
+    /// Returns the value as a boolean if it is a boolean
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Value::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+
+    /// Returns the value as an IP address if it is an IP address
+    pub fn as_ip(&self) -> Option<IpAddr> {
+        match self {
+            Value::Ip(ip) => Some(*ip),
+            _ => None,
+        }
+    }
 }
 
 impl PartialOrd for Value<'_> {
@@ -48,12 +88,12 @@ impl PartialOrd for Value<'_> {
     }
 }
 
-impl TryFrom<&serde_json::Value> for Value<'_> {
+impl<'a> TryFrom<&'a serde_json::Value> for Value<'a> {
     type Error = ();
 
-    fn try_from(value: &serde_json::Value) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a serde_json::Value) -> Result<Self, Self::Error> {
         match value {
-            serde_json::Value::String(s) => Ok(Value::String(Cow::Owned(s.clone()))),
+            serde_json::Value::String(s) => Ok(Value::String(Cow::Borrowed(s))),
             serde_json::Value::Number(n) => Ok(Value::Number(n.clone())),
             serde_json::Value::Bool(b) => Ok(Value::Bool(*b)),
             _ => Err(()),
@@ -109,6 +149,7 @@ enum Matcher {
     Regex(regex::Regex),
     RegexSet(regex::RegexSet),
     IpSet(IpnetTrie<()>),
+    Custom(OperatorCheckFn),
 }
 
 /// Represents a rule, which can be a condition or a logical combination
@@ -183,6 +224,12 @@ pub enum MatcherType {
 /// Callback type for fetchers (zero-sized)
 pub type FetcherFn<Ctx> = for<'a> fn(&'a Ctx, &[String]) -> Option<Value<'a>>;
 
+/// Callback type for operators (zero-sized)
+pub type OperatorFn = fn(MatcherType, &JsonValue) -> Result<OperatorCheckFn, String>;
+
+/// Callback type for operator check function
+pub type OperatorCheckFn = Box<dyn Fn(Value) -> bool>;
+
 /// Holds a fetcher's required matcher type and function
 struct Fetcher<Ctx> {
     matcher_type: MatcherType,
@@ -200,7 +247,8 @@ impl<Ctx> Clone for Fetcher<Ctx> {
 
 /// Rules engine for registering fetchers and parsing rules
 pub struct Engine<Ctx> {
-    registry: HashMap<String, Fetcher<Ctx>>,
+    fetchers: HashMap<String, Fetcher<Ctx>>,
+    operators: HashMap<String, OperatorFn>,
 }
 
 impl<Ctx> Default for Engine<Ctx> {
@@ -212,7 +260,8 @@ impl<Ctx> Default for Engine<Ctx> {
 impl<Ctx> Clone for Engine<Ctx> {
     fn clone(&self) -> Self {
         Engine {
-            registry: self.registry.clone(),
+            fetchers: self.fetchers.clone(),
+            operators: self.operators.clone(),
         }
     }
 }
@@ -221,7 +270,8 @@ impl<Ctx> Engine<Ctx> {
     /// Creates a new rules engine
     pub fn new() -> Self {
         Engine {
-            registry: HashMap::new(),
+            fetchers: HashMap::new(),
+            operators: HashMap::new(),
         }
     }
 
@@ -233,12 +283,17 @@ impl<Ctx> Engine<Ctx> {
         func: FetcherFn<Ctx>,
     ) {
         let fetcher = Fetcher { matcher_type, func };
-        self.registry.insert(name.to_string(), fetcher);
+        self.fetchers.insert(name.to_string(), fetcher);
+    }
+
+    /// Registers a custom operator
+    pub fn register_operator(&mut self, op: &str, func: OperatorFn) {
+        self.operators.insert(op.to_string(), func);
     }
 
     /// Parses a JSON value into a [`Rule`] using the registered fetchers
     pub fn parse_json(&self, json: &JsonValue) -> Result<Rule<Ctx>, String> {
-        Ok(Rule::all(self.parse_rules(&json)?))
+        Ok(Rule::all(self.parse_rules(json)?))
     }
 }
 

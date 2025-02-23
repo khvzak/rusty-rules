@@ -31,10 +31,10 @@ impl<Ctx> Engine<Ctx> {
                         _ => {
                             let FetcherKey { name, args } = Self::parse_fetcher_key(key)?;
                             let fetcher = self
-                                .registry
+                                .fetchers
                                 .get(&name)
                                 .ok_or_else(|| format!("Unknown fetcher: {}", name))?;
-                            let matcher = Self::parse_matcher(fetcher.matcher_type, value)?;
+                            let matcher = self.parse_matcher(fetcher.matcher_type, value)?;
 
                             let test_fn = Self::compile_condition(args, matcher);
                             rules.push(Rule::leaf(test_fn, fetcher.func));
@@ -113,6 +113,11 @@ impl<Ctx> Engine<Ctx> {
                     })
                     .unwrap_or_default()
             }),
+            Matcher::Custom(check_fn) => Rc::new(move |fetcher, ctx| {
+                fetcher(ctx, &fetcher_args)
+                    .map(&check_fn)
+                    .unwrap_or_default()
+            }),
         }
     }
 
@@ -137,7 +142,11 @@ impl<Ctx> Engine<Ctx> {
     }
 
     /// Parses a JSON value into a Matcher
-    fn parse_matcher(matcher_type: MatcherType, json: &JsonValue) -> Result<Matcher, String> {
+    fn parse_matcher(
+        &self,
+        matcher_type: MatcherType,
+        json: &JsonValue,
+    ) -> Result<Matcher, String> {
         match matcher_type {
             MatcherType::String => match json {
                 JsonValue::String(s) => Ok(Matcher::Equal(Value::String(Cow::Owned(s.clone())))),
@@ -154,7 +163,7 @@ impl<Ctx> Engine<Ctx> {
                         .collect::<Result<HashSet<_>, _>>()?;
                     Ok(Matcher::InList(list))
                 }
-                JsonValue::Object(map) => Self::parse_string_op(map),
+                JsonValue::Object(map) => self.parse_string_op(map),
                 _ => Err("Invalid value type for string matcher".to_string()),
             },
             MatcherType::StringRe => match json {
@@ -190,7 +199,7 @@ impl<Ctx> Engine<Ctx> {
                         .collect::<Result<HashSet<_>, _>>()?;
                     Ok(Matcher::InList(list))
                 }
-                JsonValue::Object(map) => Self::parse_number_op(map),
+                JsonValue::Object(map) => self.parse_number_op(map),
                 _ => Err("Invalid value type for number matcher".to_string()),
             },
             MatcherType::Bool => match json {
@@ -229,7 +238,7 @@ impl<Ctx> Engine<Ctx> {
         }
     }
 
-    fn parse_string_op(map: &Map<String, JsonValue>) -> Result<Matcher, String> {
+    fn parse_string_op(&self, map: &Map<String, JsonValue>) -> Result<Matcher, String> {
         if map.len() != 1 {
             return Err("Operator object must have exactly one key".to_string());
         }
@@ -274,12 +283,19 @@ impl<Ctx> Engine<Ctx> {
                 Ok(Matcher::RegexSet(regex_set))
             }
             ("re", _) => Err("`re` value must be a string or array of strings".to_string()),
-            (op, _) => Err(format!("Unsupported operator: {op}")),
+            _ => {
+                if let Some(op_fn) = self.operators.get(op) {
+                    let check_fn = op_fn(MatcherType::String, value)?;
+                    Ok(Matcher::Custom(check_fn))
+                } else {
+                    Err(format!("Unknown operator: {op}"))
+                }
+            }
         }
     }
 
     /// Parses number-specific operators
-    fn parse_number_op(map: &Map<String, JsonValue>) -> Result<Matcher, String> {
+    fn parse_number_op(&self, map: &Map<String, JsonValue>) -> Result<Matcher, String> {
         if map.len() != 1 {
             return Err("Operator object must have exactly one key".to_string());
         }
@@ -304,7 +320,14 @@ impl<Ctx> Engine<Ctx> {
                 Ok(Matcher::InList(list))
             }
             ("in", _) => Err("`in` value must be an array of numbers".to_string()),
-            _ => Err(format!("Unsupported operator: {op}")),
+            _ => {
+                if let Some(op_fn) = self.operators.get(op) {
+                    let check_fn = op_fn(MatcherType::Number, value)?;
+                    Ok(Matcher::Custom(check_fn))
+                } else {
+                    Err(format!("Unknown operator: {op}"))
+                }
+            }
         }
     }
 }

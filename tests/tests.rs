@@ -71,6 +71,21 @@ fn setup_engine() -> Engine<TestContext> {
         Some(Value::from(ctx.port))
     });
 
+    engine.register_operator("starts_with", |matcher_type, json| {
+        if matcher_type != MatcherType::String {
+            return Err("starts_with only supports String matcher type".to_string());
+        }
+        let prefix = match json {
+            serde_json::Value::String(s) => s.clone(),
+            _ => return Err("starts_with requires a string prefix".to_string()),
+        };
+        Ok(Box::new(move |value| {
+            (value.as_str())
+                .map(|s| s.starts_with(&prefix))
+                .unwrap_or_default()
+        }))
+    });
+
     engine
 }
 
@@ -248,6 +263,22 @@ fn test_complex_rules() {
                 {"param(a)": "1"},
                 {"param(b)": "2"}
             ]
+        }))
+        .unwrap();
+
+    assert!(rule.evaluate(&ctx));
+}
+
+#[test]
+fn test_custom_operator() {
+    let engine = setup_engine();
+    let ctx = create_test_context();
+
+    let rule = engine
+        .parse_json(&json!({
+            "header(host)": {
+                "starts_with": "www."
+            }
         }))
         .unwrap();
 

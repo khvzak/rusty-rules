@@ -86,6 +86,19 @@ impl PartialOrd for Value<'_> {
     }
 }
 
+impl TryFrom<serde_json::Value> for Value<'_> {
+    type Error = ();
+
+    fn try_from(value: serde_json::Value) -> StdResult<Self, Self::Error> {
+        match value {
+            serde_json::Value::String(s) => Ok(Value::String(Cow::Owned(s))),
+            serde_json::Value::Number(n) => Ok(Value::Number(n)),
+            serde_json::Value::Bool(b) => Ok(Value::Bool(b)),
+            _ => Err(()),
+        }
+    }
+}
+
 impl<'a> TryFrom<&'a serde_json::Value> for Value<'a> {
     type Error = ();
 

@@ -44,12 +44,18 @@ impl<Ctx> Clone for Condition<Ctx> {
 
 impl<Ctx> Rule<Ctx> {
     #[inline(always)]
-    fn any(rules: Vec<Rule<Ctx>>) -> Self {
+    fn any(mut rules: Vec<Rule<Ctx>>) -> Self {
+        if rules.len() == 1 {
+            return rules.pop().unwrap();
+        }
         Rule::Any(rules)
     }
 
     #[inline(always)]
-    fn all(rules: Vec<Rule<Ctx>>) -> Self {
+    fn all(mut rules: Vec<Rule<Ctx>>) -> Self {
+        if rules.len() == 1 {
+            return rules.pop().unwrap();
+        }
         Rule::All(rules)
     }
 

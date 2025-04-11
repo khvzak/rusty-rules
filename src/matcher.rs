@@ -25,7 +25,15 @@ pub enum Operator {
 }
 
 /// Trait for types matchers
+#[cfg(not(feature = "send"))]
 pub trait Matcher {
+    /// Parses the JSON configuration and returns an [`Operator`].
+    fn parse(&self, fetcher: &str, value: &JsonValue) -> Result<Operator>;
+}
+
+/// Trait for types matchers
+#[cfg(feature = "send")]
+pub trait Matcher: Send + Sync {
     /// Parses the JSON configuration and returns an [`Operator`].
     fn parse(&self, fetcher: &str, value: &JsonValue) -> Result<Operator>;
 }

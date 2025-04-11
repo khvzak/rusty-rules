@@ -132,7 +132,7 @@ fn benchmark_evaluation(c: &mut Criterion) {
 
     group.bench_function("rules_evaluation", |b| {
         b.iter(|| {
-            black_box(rule.evaluate(&context));
+            black_box(rule.evaluate(&context).unwrap());
         });
     });
 

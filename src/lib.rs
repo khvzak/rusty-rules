@@ -1,6 +1,8 @@
+use std::collections::HashMap;
+use std::error::Error as StdError;
+use std::fmt::Debug;
 use std::result::Result as StdResult;
 use std::sync::Arc;
-use std::{collections::HashMap, fmt::Debug};
 
 use ipnet::IpNet;
 use serde_json::Value as JsonValue;
@@ -12,7 +14,13 @@ pub use matcher::{
 };
 pub use value::Value;
 
-pub(crate) type Result<T> = std::result::Result<T, error::Error>;
+pub(crate) type Result<T> = StdResult<T, error::Error>;
+
+#[cfg(not(feature = "send"))]
+pub(crate) type DynError = Box<dyn StdError>;
+
+#[cfg(feature = "send")]
+pub(crate) type DynError = Box<dyn StdError + Send + Sync>;
 
 /// Represents a rule, which can be a condition or a logical combination
 pub enum Rule<Ctx: ?Sized + 'static> {
@@ -96,25 +104,26 @@ pub type FetcherFn<Ctx> = for<'a> fn(&'a Ctx, &[String]) -> Option<Value<'a>>;
 
 /// Callback type for operators
 #[cfg(not(feature = "send"))]
-pub type OperatorFn<Ctx> = Arc<dyn Fn(&JsonValue) -> StdResult<CheckFn<Ctx>, String>>;
+pub type OperatorFn<Ctx> = Arc<dyn Fn(&JsonValue) -> StdResult<CheckFn<Ctx>, DynError>>;
 
 /// Callback type for operators
 #[cfg(feature = "send")]
-pub type OperatorFn<Ctx> = Arc<dyn Fn(&JsonValue) -> StdResult<CheckFn<Ctx>, String> + Send + Sync>;
+pub type OperatorFn<Ctx> =
+    Arc<dyn Fn(&JsonValue) -> StdResult<CheckFn<Ctx>, DynError> + Send + Sync>;
 
 /// Callback type for operator check function
 #[cfg(not(feature = "send"))]
-pub type CheckFn<Ctx> = Box<dyn Fn(&Ctx, Value) -> bool>;
+pub type CheckFn<Ctx> = Box<dyn Fn(&Ctx, Value) -> StdResult<bool, DynError>>;
 
 /// Callback type for operator check function
 #[cfg(feature = "send")]
-pub type CheckFn<Ctx> = Box<dyn Fn(&Ctx, Value) -> bool + Send + Sync>;
+pub type CheckFn<Ctx> = Box<dyn Fn(&Ctx, Value) -> StdResult<bool, DynError> + Send + Sync>;
 
 #[cfg(not(feature = "send"))]
-type TestFn<Ctx> = Arc<dyn Fn(FetcherFn<Ctx>, &Ctx) -> bool>;
+type TestFn<Ctx> = Arc<dyn Fn(FetcherFn<Ctx>, &Ctx) -> StdResult<bool, DynError>>;
 
 #[cfg(feature = "send")]
-type TestFn<Ctx> = Arc<dyn Fn(FetcherFn<Ctx>, &Ctx) -> bool + Send + Sync>;
+type TestFn<Ctx> = Arc<dyn Fn(FetcherFn<Ctx>, &Ctx) -> StdResult<bool, DynError> + Send + Sync>;
 
 /// Holds a fetcher's required matcher type and function
 struct Fetcher<Ctx: ?Sized> {
@@ -175,7 +184,7 @@ impl<Ctx: ?Sized> Engine<Ctx> {
     #[cfg(not(feature = "send"))]
     pub fn register_operator<F>(&mut self, op: &str, func: F)
     where
-        F: Fn(&JsonValue) -> StdResult<CheckFn<Ctx>, String> + 'static,
+        F: Fn(&JsonValue) -> StdResult<CheckFn<Ctx>, DynError> + 'static,
     {
         self.operators.insert(op.to_string(), Arc::new(func));
     }
@@ -184,7 +193,7 @@ impl<Ctx: ?Sized> Engine<Ctx> {
     #[cfg(feature = "send")]
     pub fn register_operator<F>(&mut self, op: &str, func: F)
     where
-        F: Fn(&JsonValue) -> StdResult<CheckFn<Ctx>, String> + Send + Sync + 'static,
+        F: Fn(&JsonValue) -> StdResult<CheckFn<Ctx>, DynError> + Send + Sync + 'static,
     {
         self.operators.insert(op.to_string(), Arc::new(func));
     }
@@ -242,57 +251,57 @@ impl<Ctx: ?Sized> Engine<Ctx> {
     fn compile_condition(fetcher_args: Vec<String>, operator: Operator<Ctx>) -> TestFn<Ctx> {
         match operator {
             Operator::Equal(right) => Arc::new(move |fetcher, ctx| {
-                fetcher(ctx, &fetcher_args)
+                Ok(fetcher(ctx, &fetcher_args)
                     .map(|left| left == right)
-                    .unwrap_or_default()
+                    .unwrap_or_default())
             }),
             Operator::LessThan(right) => Arc::new(move |fetcher, ctx| {
-                fetcher(ctx, &fetcher_args)
+                Ok(fetcher(ctx, &fetcher_args)
                     .map(|left| left < right)
-                    .unwrap_or_default()
+                    .unwrap_or_default())
             }),
             Operator::LessThanOrEqual(right) => Arc::new(move |fetcher, ctx| {
-                fetcher(ctx, &fetcher_args)
+                Ok(fetcher(ctx, &fetcher_args)
                     .map(|left| left <= right)
-                    .unwrap_or_default()
+                    .unwrap_or_default())
             }),
             Operator::GreaterThan(right) => Arc::new(move |fetcher, ctx| {
-                fetcher(ctx, &fetcher_args)
+                Ok(fetcher(ctx, &fetcher_args)
                     .map(|left| left > right)
-                    .unwrap_or_default()
+                    .unwrap_or_default())
             }),
             Operator::GreaterThanOrEqual(right) => Arc::new(move |fetcher, ctx| {
-                fetcher(ctx, &fetcher_args)
+                Ok(fetcher(ctx, &fetcher_args)
                     .map(|left| left >= right)
-                    .unwrap_or_default()
+                    .unwrap_or_default())
             }),
             Operator::InList(list) => Arc::new(move |fetcher, ctx| {
-                fetcher(ctx, &fetcher_args)
+                Ok(fetcher(ctx, &fetcher_args)
                     .map(|val| list.contains(&val))
-                    .unwrap_or_default()
+                    .unwrap_or_default())
             }),
             Operator::Regex(regex) => Arc::new(move |fetcher, ctx| {
-                (fetcher(ctx, &fetcher_args).as_ref())
+                Ok((fetcher(ctx, &fetcher_args).as_ref())
                     .and_then(|val| val.as_str())
                     .map(|s| regex.is_match(s))
-                    .unwrap_or_default()
+                    .unwrap_or_default())
             }),
             Operator::RegexSet(regex_set) => Arc::new(move |fetcher, ctx| {
-                (fetcher(ctx, &fetcher_args).as_ref())
+                Ok((fetcher(ctx, &fetcher_args).as_ref())
                     .and_then(|val| val.as_str())
                     .map(|s| regex_set.is_match(s))
-                    .unwrap_or_default()
+                    .unwrap_or_default())
             }),
             Operator::IpSet(set) => Arc::new(move |fetcher, ctx| {
-                (fetcher(ctx, &fetcher_args).as_ref())
+                Ok((fetcher(ctx, &fetcher_args).as_ref())
                     .and_then(|val| val.as_ip())
                     .map(|ip| set.longest_match(&IpNet::from(ip)).is_some())
-                    .unwrap_or_default()
+                    .unwrap_or_default())
             }),
             Operator::Custom(check_fn) => {
                 Arc::new(move |fetcher, ctx| match fetcher(ctx, &fetcher_args) {
                     Some(val) => check_fn(ctx, val),
-                    None => false,
+                    None => Ok(false),
                 })
             }
         }
@@ -321,12 +330,26 @@ impl<Ctx: ?Sized> Engine<Ctx> {
 
 impl<Ctx: ?Sized> Rule<Ctx> {
     /// Evaluates a rule using the provided context
-    pub fn evaluate(&self, context: &Ctx) -> bool {
+    pub fn evaluate(&self, context: &Ctx) -> StdResult<bool, DynError> {
         match self {
             Rule::Leaf(Condition(test_fn, fetcher_fn)) => test_fn(*fetcher_fn, context),
-            Rule::Any(subrules) => subrules.iter().any(|r| r.evaluate(context)),
-            Rule::All(subrules) => subrules.iter().all(|r| r.evaluate(context)),
-            Rule::Not(subrule) => !subrule.evaluate(context),
+            Rule::Any(subrules) => {
+                for rule in subrules {
+                    if rule.evaluate(context)? {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            }
+            Rule::All(subrules) => {
+                for rule in subrules {
+                    if !rule.evaluate(context)? {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
+            Rule::Not(subrule) => Ok(!subrule.evaluate(context)?),
         }
     }
 }

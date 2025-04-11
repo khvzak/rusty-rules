@@ -81,12 +81,12 @@ fn setup_engine() -> Engine<TestContext> {
     engine.register_operator("starts_with", |json| {
         let prefix = match json {
             serde_json::Value::String(s) => s.clone(),
-            _ => return Err("`starts_with` requires a string prefix".to_string()),
+            _ => return Err("`starts_with` requires a string prefix".into()),
         };
         Ok(Box::new(move |_, value| {
-            (value.as_str())
+            Ok((value.as_str())
                 .map(|s| s.starts_with(&prefix))
-                .unwrap_or_default()
+                .unwrap_or_default())
         }))
     });
 
@@ -94,18 +94,18 @@ fn setup_engine() -> Engine<TestContext> {
         let range = match json {
             serde_json::Value::Array(arr) => {
                 if arr.len() != 2 {
-                    return Err("between requires an array of two numbers".to_string());
+                    return Err("between requires an array of two numbers".into());
                 }
                 let min = arr[0].as_i64().ok_or("min value must be a number")?;
                 let max = arr[1].as_i64().ok_or("max value must be a number")?;
                 (min, max)
             }
-            _ => return Err("between requires an array of two numbers".to_string()),
+            _ => return Err("between requires an array of two numbers".into()),
         };
         Ok(Box::new(move |_, value| {
-            (value.as_i64())
+            Ok((value.as_i64())
                 .map(|n| n >= range.0 && n <= range.1)
-                .unwrap_or_default()
+                .unwrap_or_default())
         }))
     });
 
@@ -125,7 +125,7 @@ fn test_simple_conditions() {
         }))
         .unwrap();
 
-    assert!(rule.evaluate(&ctx));
+    assert!(rule.evaluate(&ctx).unwrap());
 }
 
 #[test]
@@ -150,7 +150,7 @@ fn test_logical_operators() {
         }))
         .unwrap();
 
-    assert!(rule.evaluate(&ctx));
+    assert!(rule.evaluate(&ctx).unwrap());
 }
 
 #[test]
@@ -167,7 +167,7 @@ fn test_regex_matching() {
         }))
         .unwrap();
 
-    assert!(rule.evaluate(&ctx));
+    assert!(rule.evaluate(&ctx).unwrap());
 }
 
 #[test]
@@ -181,7 +181,7 @@ fn test_ip_matching() {
         }))
         .unwrap();
 
-    assert!(rule.evaluate(&ctx));
+    assert!(rule.evaluate(&ctx).unwrap());
 }
 
 #[test]
@@ -196,7 +196,7 @@ fn test_number_comparisons() {
         ]))
         .unwrap();
 
-    assert!(rule.evaluate(&ctx));
+    assert!(rule.evaluate(&ctx).unwrap());
 }
 
 #[test]
@@ -216,7 +216,7 @@ fn test_empty_rule() {
     let ctx = create_test_context();
 
     let rule = engine.parse_value(&json!({})).unwrap();
-    assert!(rule.evaluate(&ctx));
+    assert!(rule.evaluate(&ctx).unwrap());
 }
 
 #[test]
@@ -289,7 +289,7 @@ fn test_complex_rules() {
         }))
         .unwrap();
 
-    assert!(rule.evaluate(&ctx));
+    assert!(rule.evaluate(&ctx).unwrap());
 }
 
 #[test]
@@ -304,7 +304,7 @@ fn test_custom_operator() {
             }
         }))
         .unwrap();
-    assert!(rule.evaluate(&ctx));
+    assert!(rule.evaluate(&ctx).unwrap());
 
     let rule = engine
         .parse_value(&json!({
@@ -313,7 +313,7 @@ fn test_custom_operator() {
             }
         }))
         .unwrap();
-    assert!(rule.evaluate(&ctx));
+    assert!(rule.evaluate(&ctx).unwrap());
 
     let rule = engine
         .parse_value(&json!({
@@ -322,5 +322,5 @@ fn test_custom_operator() {
             }
         }))
         .unwrap();
-    assert!(!rule.evaluate(&ctx));
+    assert!(!rule.evaluate(&ctx).unwrap());
 }

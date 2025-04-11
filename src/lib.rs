@@ -15,14 +15,14 @@ pub use value::Value;
 pub(crate) type Result<T> = std::result::Result<T, error::Error>;
 
 /// Represents a rule, which can be a condition or a logical combination
-pub enum Rule<Ctx> {
+pub enum Rule<Ctx: ?Sized + 'static> {
     Any(Vec<Self>),
     All(Vec<Self>),
     Not(Box<Self>),
     Leaf(Condition<Ctx>),
 }
 
-impl<Ctx> Debug for Rule<Ctx> {
+impl<Ctx: ?Sized> Debug for Rule<Ctx> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Rule::Any(rules) => f.debug_tuple("Any").field(rules).finish(),
@@ -33,7 +33,7 @@ impl<Ctx> Debug for Rule<Ctx> {
     }
 }
 
-impl<Ctx> Clone for Rule<Ctx> {
+impl<Ctx: ?Sized> Clone for Rule<Ctx> {
     fn clone(&self) -> Self {
         match self {
             Rule::Any(rules) => Rule::Any(rules.clone()),
@@ -45,15 +45,15 @@ impl<Ctx> Clone for Rule<Ctx> {
 }
 
 #[doc(hidden)]
-pub struct Condition<Ctx>(TestFn<Ctx>, FetcherFn<Ctx>);
+pub struct Condition<Ctx: ?Sized>(TestFn<Ctx>, FetcherFn<Ctx>);
 
-impl<Ctx> Clone for Condition<Ctx> {
+impl<Ctx: ?Sized> Clone for Condition<Ctx> {
     fn clone(&self) -> Self {
         Condition(self.0.clone(), self.1)
     }
 }
 
-impl<Ctx> Rule<Ctx> {
+impl<Ctx: ?Sized> Rule<Ctx> {
     #[inline(always)]
     fn any(mut rules: Vec<Rule<Ctx>>) -> Self {
         if rules.len() == 1 {
@@ -95,15 +95,20 @@ struct FetcherKey {
 pub type FetcherFn<Ctx> = for<'a> fn(&'a Ctx, &[String]) -> Option<Value<'a>>;
 
 /// Callback type for operators
-pub type OperatorFn = fn(&JsonValue) -> StdResult<CheckFn, String>;
+#[cfg(not(feature = "send"))]
+pub type OperatorFn<Ctx> = Arc<dyn Fn(&JsonValue) -> StdResult<CheckFn<Ctx>, String>>;
+
+/// Callback type for operators
+#[cfg(feature = "send")]
+pub type OperatorFn<Ctx> = Arc<dyn Fn(&JsonValue) -> StdResult<CheckFn<Ctx>, String> + Send + Sync>;
 
 /// Callback type for operator check function
 #[cfg(not(feature = "send"))]
-pub type CheckFn = Box<dyn Fn(Value) -> bool>;
+pub type CheckFn<Ctx> = Box<dyn Fn(&Ctx, Value) -> bool>;
 
 /// Callback type for operator check function
 #[cfg(feature = "send")]
-pub type CheckFn = Box<dyn Fn(Value) -> bool + Send + Sync>;
+pub type CheckFn<Ctx> = Box<dyn Fn(&Ctx, Value) -> bool + Send + Sync>;
 
 #[cfg(not(feature = "send"))]
 type TestFn<Ctx> = Arc<dyn Fn(FetcherFn<Ctx>, &Ctx) -> bool>;
@@ -112,12 +117,12 @@ type TestFn<Ctx> = Arc<dyn Fn(FetcherFn<Ctx>, &Ctx) -> bool>;
 type TestFn<Ctx> = Arc<dyn Fn(FetcherFn<Ctx>, &Ctx) -> bool + Send + Sync>;
 
 /// Holds a fetcher's required matcher type and function
-struct Fetcher<Ctx> {
-    matcher: Arc<dyn Matcher>,
+struct Fetcher<Ctx: ?Sized> {
+    matcher: Arc<dyn Matcher<Ctx>>,
     func: FetcherFn<Ctx>,
 }
 
-impl<Ctx> Clone for Fetcher<Ctx> {
+impl<Ctx: ?Sized> Clone for Fetcher<Ctx> {
     fn clone(&self) -> Self {
         Fetcher {
             matcher: self.matcher.clone(),
@@ -127,18 +132,18 @@ impl<Ctx> Clone for Fetcher<Ctx> {
 }
 
 /// Rules engine for registering fetchers/operators and parsing rules
-pub struct Engine<Ctx> {
+pub struct Engine<Ctx: ?Sized + 'static> {
     fetchers: HashMap<String, Fetcher<Ctx>>,
-    operators: HashMap<String, OperatorFn>,
+    operators: HashMap<String, OperatorFn<Ctx>>,
 }
 
-impl<Ctx> Default for Engine<Ctx> {
+impl<Ctx: ?Sized> Default for Engine<Ctx> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<Ctx> Clone for Engine<Ctx> {
+impl<Ctx: ?Sized> Clone for Engine<Ctx> {
     fn clone(&self) -> Self {
         Engine {
             fetchers: self.fetchers.clone(),
@@ -147,7 +152,7 @@ impl<Ctx> Clone for Engine<Ctx> {
     }
 }
 
-impl<Ctx> Engine<Ctx> {
+impl<Ctx: ?Sized> Engine<Ctx> {
     /// Creates a new rules engine
     pub fn new() -> Self {
         Engine {
@@ -159,7 +164,7 @@ impl<Ctx> Engine<Ctx> {
     /// Registers a fetcher with its name, matcher, and function
     pub fn register_fetcher<M>(&mut self, name: &str, matcher: M, func: FetcherFn<Ctx>)
     where
-        M: Matcher + 'static,
+        M: Matcher<Ctx> + 'static,
     {
         let matcher = Arc::new(matcher);
         let fetcher = Fetcher { matcher, func };
@@ -167,8 +172,21 @@ impl<Ctx> Engine<Ctx> {
     }
 
     /// Registers a custom operator
-    pub fn register_operator(&mut self, op: &str, func: OperatorFn) {
-        self.operators.insert(op.to_string(), func);
+    #[cfg(not(feature = "send"))]
+    pub fn register_operator<F>(&mut self, op: &str, func: F)
+    where
+        F: Fn(&JsonValue) -> StdResult<CheckFn<Ctx>, String> + 'static,
+    {
+        self.operators.insert(op.to_string(), Arc::new(func));
+    }
+
+    /// Registers a custom operator
+    #[cfg(feature = "send")]
+    pub fn register_operator<F>(&mut self, op: &str, func: F)
+    where
+        F: Fn(&JsonValue) -> StdResult<CheckFn<Ctx>, String> + Send + Sync + 'static,
+    {
+        self.operators.insert(op.to_string(), Arc::new(func));
     }
 
     /// Parses a JSON value into a [`Rule`] using the registered fetchers and operators
@@ -221,7 +239,7 @@ impl<Ctx> Engine<Ctx> {
         }
     }
 
-    fn compile_condition(fetcher_args: Vec<String>, operator: Operator) -> TestFn<Ctx> {
+    fn compile_condition(fetcher_args: Vec<String>, operator: Operator<Ctx>) -> TestFn<Ctx> {
         match operator {
             Operator::Equal(right) => Arc::new(move |fetcher, ctx| {
                 fetcher(ctx, &fetcher_args)
@@ -271,11 +289,12 @@ impl<Ctx> Engine<Ctx> {
                     .map(|ip| set.longest_match(&IpNet::from(ip)).is_some())
                     .unwrap_or_default()
             }),
-            Operator::Custom(check_fn) => Arc::new(move |fetcher, ctx| {
-                fetcher(ctx, &fetcher_args)
-                    .map(&check_fn)
-                    .unwrap_or_default()
-            }),
+            Operator::Custom(check_fn) => {
+                Arc::new(move |fetcher, ctx| match fetcher(ctx, &fetcher_args) {
+                    Some(val) => check_fn(ctx, val),
+                    None => false,
+                })
+            }
         }
     }
 
@@ -300,7 +319,7 @@ impl<Ctx> Engine<Ctx> {
     }
 }
 
-impl<Ctx> Rule<Ctx> {
+impl<Ctx: ?Sized> Rule<Ctx> {
     /// Evaluates a rule using the provided context
     pub fn evaluate(&self, context: &Ctx) -> bool {
         match self {

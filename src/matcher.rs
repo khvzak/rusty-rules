@@ -11,7 +11,7 @@ use serde_json::{Map, Value as JsonValue};
 use crate::{CheckFn, Error, JsonValueExt as _, Result, Value};
 
 /// Represents an operator that used to check if a fetched value satisfies the condition.
-pub enum Operator {
+pub enum Operator<Ctx: ?Sized> {
     Equal(Value<'static>),
     LessThan(Value<'static>),
     LessThanOrEqual(Value<'static>),
@@ -21,21 +21,21 @@ pub enum Operator {
     Regex(regex::Regex),
     RegexSet(regex::RegexSet),
     IpSet(IpnetTrie<()>),
-    Custom(CheckFn),
+    Custom(CheckFn<Ctx>),
 }
 
 /// Trait for types matchers
 #[cfg(not(feature = "send"))]
-pub trait Matcher {
+pub trait Matcher<Ctx: ?Sized> {
     /// Parses the JSON configuration and returns an [`Operator`].
-    fn parse(&self, fetcher: &str, value: &JsonValue) -> Result<Operator>;
+    fn parse(&self, fetcher: &str, value: &JsonValue) -> Result<Operator<Ctx>>;
 }
 
 /// Trait for types matchers
 #[cfg(feature = "send")]
-pub trait Matcher: Send + Sync {
+pub trait Matcher<Ctx: ?Sized>: Send + Sync {
     /// Parses the JSON configuration and returns an [`Operator`].
-    fn parse(&self, fetcher: &str, value: &JsonValue) -> Result<Operator>;
+    fn parse(&self, fetcher: &str, value: &JsonValue) -> Result<Operator<Ctx>>;
 }
 
 /// A matcher for string values.
@@ -43,8 +43,8 @@ pub trait Matcher: Send + Sync {
 /// It supports custom operators.
 pub struct StringMatcher;
 
-impl Matcher for StringMatcher {
-    fn parse(&self, fetcher: &str, value: &JsonValue) -> Result<Operator> {
+impl<Ctx: ?Sized> Matcher<Ctx> for StringMatcher {
+    fn parse(&self, fetcher: &str, value: &JsonValue) -> Result<Operator<Ctx>> {
         macro_rules! type_mismatch {
             ($($arg:tt)*) => {
                 Err(Error::matcher("String", fetcher, format!($($arg)*)))
@@ -72,7 +72,7 @@ impl Matcher for StringMatcher {
 }
 
 impl StringMatcher {
-    fn parse_op(fetcher: &str, map: &Map<String, JsonValue>) -> Result<Operator> {
+    fn parse_op<Ctx: ?Sized>(fetcher: &str, map: &Map<String, JsonValue>) -> Result<Operator<Ctx>> {
         let len = map.len();
         if len != 1 {
             let msg = format!("'{fetcher}' operator object must have exactly one key (got {len})",);
@@ -137,8 +137,8 @@ impl StringMatcher {
 /// Does not support custom operators.
 pub struct RegexMatcher;
 
-impl Matcher for RegexMatcher {
-    fn parse(&self, fetcher: &str, value: &JsonValue) -> Result<Operator> {
+impl<Ctx: ?Sized> Matcher<Ctx> for RegexMatcher {
+    fn parse(&self, fetcher: &str, value: &JsonValue) -> Result<Operator<Ctx>> {
         macro_rules! type_mismatch {
             ($($arg:tt)*) => {
                 Err(Error::matcher("Regex", fetcher, format!($($arg)*)))
@@ -171,8 +171,8 @@ impl Matcher for RegexMatcher {
 /// It supports custom operators.
 pub struct NumberMatcher;
 
-impl Matcher for NumberMatcher {
-    fn parse(&self, fetcher: &str, value: &JsonValue) -> Result<Operator> {
+impl<Ctx: ?Sized> Matcher<Ctx> for NumberMatcher {
+    fn parse(&self, fetcher: &str, value: &JsonValue) -> Result<Operator<Ctx>> {
         macro_rules! type_mismatch {
             ($($arg:tt)*) => {
                 Err(Error::matcher("Number", fetcher, format!($($arg)*)))
@@ -198,7 +198,7 @@ impl Matcher for NumberMatcher {
 }
 
 impl NumberMatcher {
-    fn parse_op(fetcher: &str, map: &Map<String, JsonValue>) -> Result<Operator> {
+    fn parse_op<Ctx: ?Sized>(fetcher: &str, map: &Map<String, JsonValue>) -> Result<Operator<Ctx>> {
         let len = map.len();
         if len != 1 {
             let msg = format!("'{fetcher}' operator object must have exactly one key (got {len})",);
@@ -244,8 +244,8 @@ impl NumberMatcher {
 /// Does not support custom operators.
 pub struct BoolMatcher;
 
-impl Matcher for BoolMatcher {
-    fn parse(&self, fetcher: &str, value: &JsonValue) -> Result<Operator> {
+impl<Ctx: ?Sized> Matcher<Ctx> for BoolMatcher {
+    fn parse(&self, fetcher: &str, value: &JsonValue) -> Result<Operator<Ctx>> {
         macro_rules! type_mismatch {
             ($($arg:tt)*) => {
                 Err(Error::matcher("Bool", fetcher, format!($($arg)*)))
@@ -264,8 +264,8 @@ impl Matcher for BoolMatcher {
 /// Does not support custom operators.
 pub struct IpMatcher;
 
-impl Matcher for IpMatcher {
-    fn parse(&self, fetcher: &str, value: &JsonValue) -> Result<Operator> {
+impl<Ctx: ?Sized> Matcher<Ctx> for IpMatcher {
+    fn parse(&self, fetcher: &str, value: &JsonValue) -> Result<Operator<Ctx>> {
         macro_rules! type_mismatch {
             ($($arg:tt)*) => {
                 Err(Error::matcher("Ip", fetcher, format!($($arg)*)))

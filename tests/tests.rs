@@ -83,7 +83,7 @@ fn setup_engine() -> Engine<TestContext> {
             serde_json::Value::String(s) => s.clone(),
             _ => return Err("`starts_with` requires a string prefix".to_string()),
         };
-        Ok(Box::new(move |value| {
+        Ok(Box::new(move |_, value| {
             (value.as_str())
                 .map(|s| s.starts_with(&prefix))
                 .unwrap_or_default()
@@ -102,7 +102,7 @@ fn setup_engine() -> Engine<TestContext> {
             }
             _ => return Err("between requires an array of two numbers".to_string()),
         };
-        Ok(Box::new(move |value| {
+        Ok(Box::new(move |_, value| {
             (value.as_i64())
                 .map(|n| n >= range.0 && n <= range.1)
                 .unwrap_or_default()

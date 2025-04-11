@@ -1,7 +1,7 @@
 #![cfg(not(feature = "send"))]
 
 use mlua::prelude::*;
-use rusty_rules::{Engine, StringMatcher, Value};
+use rusty_rules::{Engine, Operator, StringMatcher, Value};
 use serde_json::json;
 
 #[test]
@@ -26,11 +26,11 @@ fn test_lua_operator() {
             .eval::<LuaFunction>()
             .map_err(|err| err.to_string())?;
 
-        Ok(Box::new(move |ctx, value| match value {
+        Ok(Operator::Custom(Box::new(move |ctx, value| match value {
             Value::String(s) => Ok(func.call((ctx, s))?),
             Value::Number(n) => Ok(func.call((ctx, n.is_i64()))?),
             _ => Ok(false),
-        }))
+        })))
     });
 
     // Run the tests

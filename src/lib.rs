@@ -104,12 +104,12 @@ pub type FetcherFn<Ctx> = for<'a> fn(&'a Ctx, &[String]) -> Option<Value<'a>>;
 
 /// Callback type for operators
 #[cfg(not(feature = "send"))]
-pub type OperatorFn<Ctx> = Arc<dyn Fn(&JsonValue) -> StdResult<CheckFn<Ctx>, DynError>>;
+type OperatorBuilder<Ctx> = Arc<dyn Fn(&JsonValue) -> StdResult<Operator<Ctx>, DynError>>;
 
 /// Callback type for operators
 #[cfg(feature = "send")]
-pub type OperatorFn<Ctx> =
-    Arc<dyn Fn(&JsonValue) -> StdResult<CheckFn<Ctx>, DynError> + Send + Sync>;
+type OperatorBuilder<Ctx> =
+    Arc<dyn Fn(&JsonValue) -> StdResult<Operator<Ctx>, DynError> + Send + Sync>;
 
 /// Callback type for operator check function
 #[cfg(not(feature = "send"))]
@@ -143,7 +143,7 @@ impl<Ctx: ?Sized> Clone for Fetcher<Ctx> {
 /// Rules engine for registering fetchers/operators and parsing rules
 pub struct Engine<Ctx: ?Sized + 'static> {
     fetchers: HashMap<String, Fetcher<Ctx>>,
-    operators: HashMap<String, OperatorFn<Ctx>>,
+    operators: HashMap<String, OperatorBuilder<Ctx>>,
 }
 
 impl<Ctx: ?Sized> Default for Engine<Ctx> {
@@ -184,7 +184,7 @@ impl<Ctx: ?Sized> Engine<Ctx> {
     #[cfg(not(feature = "send"))]
     pub fn register_operator<F>(&mut self, op: &str, func: F)
     where
-        F: Fn(&JsonValue) -> StdResult<CheckFn<Ctx>, DynError> + 'static,
+        F: Fn(&JsonValue) -> StdResult<Operator<Ctx>, DynError> + 'static,
     {
         self.operators.insert(op.to_string(), Arc::new(func));
     }
@@ -193,7 +193,7 @@ impl<Ctx: ?Sized> Engine<Ctx> {
     #[cfg(feature = "send")]
     pub fn register_operator<F>(&mut self, op: &str, func: F)
     where
-        F: Fn(&JsonValue) -> StdResult<CheckFn<Ctx>, DynError> + Send + Sync + 'static,
+        F: Fn(&JsonValue) -> StdResult<Operator<Ctx>, DynError> + Send + Sync + 'static,
     {
         self.operators.insert(op.to_string(), Arc::new(func));
     }
@@ -221,10 +221,9 @@ impl<Ctx: ?Sized> Engine<Ctx> {
                             let mut operator = fetcher.matcher.parse(&name, value);
                             // Try custom operator
                             if let Err(Error::UnknownOperator(ref op)) = operator {
-                                if let Some(op_fn) = self.operators.get(op) {
-                                    let check_fn = op_fn(&value[op])
-                                        .map_err(|err| Error::operator(op, &name, err))?;
-                                    operator = Ok(Operator::Custom(check_fn));
+                                if let Some(op_builder) = self.operators.get(op) {
+                                    operator = op_builder(&value[op])
+                                        .map_err(|err| Error::operator(op, &name, err));
                                 }
                             }
                             let test_fn = Self::compile_condition(args, operator?);

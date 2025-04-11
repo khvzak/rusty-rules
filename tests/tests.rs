@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
-use rusty_rules::{Engine, IpMatcher, NumberMatcher, RegexMatcher, StringMatcher, Value};
+use rusty_rules::{Engine, IpMatcher, NumberMatcher, Operator, RegexMatcher, StringMatcher, Value};
 use serde_json::json;
 
 // Test context structure
@@ -83,11 +83,11 @@ fn setup_engine() -> Engine<TestContext> {
             serde_json::Value::String(s) => s.clone(),
             _ => return Err("`starts_with` requires a string prefix".into()),
         };
-        Ok(Box::new(move |_, value| {
+        Ok(Operator::Custom(Box::new(move |_, value| {
             Ok((value.as_str())
                 .map(|s| s.starts_with(&prefix))
                 .unwrap_or_default())
-        }))
+        })))
     });
 
     engine.register_operator("between", |json| {
@@ -102,11 +102,11 @@ fn setup_engine() -> Engine<TestContext> {
             }
             _ => return Err("between requires an array of two numbers".into()),
         };
-        Ok(Box::new(move |_, value| {
+        Ok(Operator::Custom(Box::new(move |_, value| {
             Ok((value.as_i64())
                 .map(|n| n >= range.0 && n <= range.1)
                 .unwrap_or_default())
-        }))
+        })))
     });
 
     engine

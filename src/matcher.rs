@@ -10,6 +10,8 @@ use serde_json::{Map, Value as JsonValue};
 
 use crate::{CheckFn, Error, JsonValueExt as _, Result, Value};
 
+use crate::AsyncCheckFn;
+
 /// Represents an operator that used to check if a fetched value satisfies the condition.
 pub enum Operator<Ctx: ?Sized> {
     Equal(Value<'static>),
@@ -21,7 +23,8 @@ pub enum Operator<Ctx: ?Sized> {
     Regex(regex::Regex),
     RegexSet(regex::RegexSet),
     IpSet(IpnetTrie<()>),
-    Custom(CheckFn<Ctx>),
+    Custom(Box<CheckFn<Ctx>>),
+    CustomAsync(Box<AsyncCheckFn<Ctx>>),
 }
 
 /// Trait for types matchers

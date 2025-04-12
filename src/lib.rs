@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::fmt::Debug;
+use std::future::Future;
+use std::pin::Pin;
 use std::result::Result as StdResult;
 use std::sync::Arc;
 
@@ -13,6 +15,32 @@ pub use matcher::{
     BoolMatcher, IpMatcher, Matcher, NumberMatcher, Operator, RegexMatcher, StringMatcher,
 };
 pub use value::Value;
+
+#[cfg(not(feature = "send"))]
+pub trait MaybeSend {}
+#[cfg(not(feature = "send"))]
+impl<T: ?Sized> MaybeSend for T {}
+
+#[cfg(feature = "send")]
+pub trait MaybeSend: Send {}
+#[cfg(feature = "send")]
+impl<T: Send + ?Sized> MaybeSend for T {}
+
+#[cfg(not(feature = "send"))]
+pub trait MaybeSync {}
+#[cfg(not(feature = "send"))]
+impl<T: ?Sized> MaybeSync for T {}
+
+#[cfg(feature = "send")]
+pub trait MaybeSync: Sync {}
+#[cfg(feature = "send")]
+impl<T: Sync + ?Sized> MaybeSync for T {}
+
+#[cfg(not(feature = "send"))]
+type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
+
+#[cfg(feature = "send")]
+type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 pub(crate) type Result<T> = StdResult<T, error::Error>;
 
@@ -36,7 +64,7 @@ impl<Ctx: ?Sized> Debug for Rule<Ctx> {
             Rule::Any(rules) => f.debug_tuple("Any").field(rules).finish(),
             Rule::All(rules) => f.debug_tuple("All").field(rules).finish(),
             Rule::Not(rule) => f.debug_tuple("Not").field(rule).finish(),
-            Rule::Leaf(_) => write!(f, "Leaf(...)"),
+            Rule::Leaf(_) => f.debug_tuple("Leaf").finish(),
         }
     }
 }
@@ -53,11 +81,11 @@ impl<Ctx: ?Sized> Clone for Rule<Ctx> {
 }
 
 #[doc(hidden)]
-pub struct Condition<Ctx: ?Sized>(TestFn<Ctx>, FetcherFn<Ctx>);
+pub struct Condition<Ctx: ?Sized>(AnyEvalFn<Ctx>);
 
 impl<Ctx: ?Sized> Clone for Condition<Ctx> {
     fn clone(&self) -> Self {
-        Condition(self.0.clone(), self.1)
+        Condition(self.0.clone())
     }
 }
 
@@ -87,20 +115,39 @@ impl<Ctx: ?Sized> Rule<Ctx> {
     }
 
     #[inline(always)]
-    fn leaf(test_fn: TestFn<Ctx>, fetcher_fn: FetcherFn<Ctx>) -> Self {
-        Rule::Leaf(Condition(test_fn, fetcher_fn))
+    fn leaf(eval_fn: AnyEvalFn<Ctx>) -> Self {
+        Rule::Leaf(Condition(eval_fn))
     }
 }
 
 /// Represents a fetcher key like "header(host)" with name and arguments
 #[derive(Debug)]
-struct FetcherKey {
+pub(crate) struct FetcherKey {
     name: String,
     args: Vec<String>,
 }
 
 /// Callback type for fetchers
 pub type FetcherFn<Ctx> = for<'a> fn(&'a Ctx, &[String]) -> Option<Value<'a>>;
+
+/// Callback type for async fetchers
+pub type AsyncFetcherFn<Ctx> = for<'a> fn(&'a Ctx, &[String]) -> BoxFuture<'a, Option<Value<'a>>>;
+
+enum AnyFetcherFn<Ctx: ?Sized> {
+    Sync(FetcherFn<Ctx>),
+    Async(AsyncFetcherFn<Ctx>),
+}
+
+impl<Ctx: ?Sized> Clone for AnyFetcherFn<Ctx> {
+    fn clone(&self) -> Self {
+        match self {
+            AnyFetcherFn::Sync(func) => AnyFetcherFn::Sync(*func),
+            AnyFetcherFn::Async(func) => AnyFetcherFn::Async(*func),
+        }
+    }
+}
+
+impl<Ctx: ?Sized> Copy for AnyFetcherFn<Ctx> {}
 
 /// Callback type for operators
 #[cfg(not(feature = "send"))]
@@ -113,46 +160,78 @@ type OperatorBuilder<Ctx> =
 
 /// Callback type for operator check function
 #[cfg(not(feature = "send"))]
-pub type CheckFn<Ctx> = Box<dyn Fn(&Ctx, Value) -> StdResult<bool, DynError>>;
+pub type CheckFn<Ctx> = dyn Fn(&Ctx, Value) -> StdResult<bool, DynError>;
 
 /// Callback type for operator check function
 #[cfg(feature = "send")]
-pub type CheckFn<Ctx> = Box<dyn Fn(&Ctx, Value) -> StdResult<bool, DynError> + Send + Sync>;
+pub type CheckFn<Ctx> = dyn Fn(&Ctx, Value) -> StdResult<bool, DynError> + Send + Sync;
+
+/// Callback type for async operator check function
+#[cfg(not(feature = "send"))]
+pub type AsyncCheckFn<Ctx> =
+    dyn for<'a> Fn(&'a Ctx, Value<'a>) -> BoxFuture<'a, StdResult<bool, DynError>>;
+
+/// Callback type for async operator check function
+#[cfg(feature = "send")]
+pub type AsyncCheckFn<Ctx> =
+    dyn for<'a> Fn(&'a Ctx, Value<'a>) -> BoxFuture<'a, StdResult<bool, DynError>> + Send + Sync;
 
 #[cfg(not(feature = "send"))]
-type TestFn<Ctx> = Arc<dyn Fn(FetcherFn<Ctx>, &Ctx) -> StdResult<bool, DynError>>;
+type EvalFn<Ctx> = Arc<dyn Fn(&Ctx) -> StdResult<bool, DynError>>;
 
 #[cfg(feature = "send")]
-type TestFn<Ctx> = Arc<dyn Fn(FetcherFn<Ctx>, &Ctx) -> StdResult<bool, DynError> + Send + Sync>;
+type EvalFn<Ctx> = Arc<dyn Fn(&Ctx) -> StdResult<bool, DynError> + Send + Sync>;
+
+#[cfg(not(feature = "send"))]
+pub(crate) type AsyncEvalFn<Ctx> =
+    Arc<dyn for<'a> Fn(&'a Ctx) -> BoxFuture<'a, StdResult<bool, DynError>>>;
+
+#[cfg(feature = "send")]
+pub(crate) type AsyncEvalFn<Ctx> =
+    Arc<dyn for<'a> Fn(&'a Ctx) -> BoxFuture<'a, StdResult<bool, DynError>> + Send + Sync>;
+
+enum AnyEvalFn<Ctx: ?Sized> {
+    Sync(EvalFn<Ctx>),
+    Async(AsyncEvalFn<Ctx>),
+}
+
+impl<Ctx: ?Sized> Clone for AnyEvalFn<Ctx> {
+    fn clone(&self) -> Self {
+        match self {
+            AnyEvalFn::Sync(func) => AnyEvalFn::Sync(func.clone()),
+            AnyEvalFn::Async(func) => AnyEvalFn::Async(func.clone()),
+        }
+    }
+}
 
 /// Holds a fetcher's required matcher type and function
 struct Fetcher<Ctx: ?Sized> {
     matcher: Arc<dyn Matcher<Ctx>>,
-    func: FetcherFn<Ctx>,
+    func: AnyFetcherFn<Ctx>,
 }
 
 impl<Ctx: ?Sized> Clone for Fetcher<Ctx> {
     fn clone(&self) -> Self {
         Fetcher {
             matcher: self.matcher.clone(),
-            func: self.func,
+            func: self.func.clone(),
         }
     }
 }
 
 /// Rules engine for registering fetchers/operators and parsing rules
-pub struct Engine<Ctx: ?Sized + 'static> {
+pub struct Engine<Ctx: MaybeSync + ?Sized + 'static> {
     fetchers: HashMap<String, Fetcher<Ctx>>,
     operators: HashMap<String, OperatorBuilder<Ctx>>,
 }
 
-impl<Ctx: ?Sized> Default for Engine<Ctx> {
+impl<Ctx: MaybeSync + ?Sized> Default for Engine<Ctx> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<Ctx: ?Sized> Clone for Engine<Ctx> {
+impl<Ctx: MaybeSync + ?Sized> Clone for Engine<Ctx> {
     fn clone(&self) -> Self {
         Engine {
             fetchers: self.fetchers.clone(),
@@ -161,7 +240,7 @@ impl<Ctx: ?Sized> Clone for Engine<Ctx> {
     }
 }
 
-impl<Ctx: ?Sized> Engine<Ctx> {
+impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
     /// Creates a new rules engine
     pub fn new() -> Self {
         Engine {
@@ -176,24 +255,26 @@ impl<Ctx: ?Sized> Engine<Ctx> {
         M: Matcher<Ctx> + 'static,
     {
         let matcher = Arc::new(matcher);
+        let func = AnyFetcherFn::Sync(func);
+        let fetcher = Fetcher { matcher, func };
+        self.fetchers.insert(name.to_string(), fetcher);
+    }
+
+    /// Registers an async fetcher with its name, matcher, and function
+    pub fn register_async_fetcher<M>(&mut self, name: &str, matcher: M, func: AsyncFetcherFn<Ctx>)
+    where
+        M: Matcher<Ctx> + 'static,
+    {
+        let matcher = Arc::new(matcher);
+        let func = AnyFetcherFn::Async(func);
         let fetcher = Fetcher { matcher, func };
         self.fetchers.insert(name.to_string(), fetcher);
     }
 
     /// Registers a custom operator
-    #[cfg(not(feature = "send"))]
     pub fn register_operator<F>(&mut self, op: &str, func: F)
     where
-        F: Fn(&JsonValue) -> StdResult<Operator<Ctx>, DynError> + 'static,
-    {
-        self.operators.insert(op.to_string(), Arc::new(func));
-    }
-
-    /// Registers a custom operator
-    #[cfg(feature = "send")]
-    pub fn register_operator<F>(&mut self, op: &str, func: F)
-    where
-        F: Fn(&JsonValue) -> StdResult<Operator<Ctx>, DynError> + Send + Sync + 'static,
+        F: Fn(&JsonValue) -> StdResult<Operator<Ctx>, DynError> + MaybeSend + MaybeSync + 'static,
     {
         self.operators.insert(op.to_string(), Arc::new(func));
     }
@@ -226,9 +307,9 @@ impl<Ctx: ?Sized> Engine<Ctx> {
                                         .map_err(|err| Error::operator(op, &name, err));
                                 }
                             }
-                            let test_fn = Self::compile_condition(args, operator?);
+                            let eval_fn = Self::compile_condition(fetcher.func, args, operator?);
 
-                            rules.push(Rule::leaf(test_fn, fetcher.func));
+                            rules.push(Rule::leaf(eval_fn));
                         }
                     }
                 }
@@ -247,61 +328,241 @@ impl<Ctx: ?Sized> Engine<Ctx> {
         }
     }
 
-    fn compile_condition(fetcher_args: Vec<String>, operator: Operator<Ctx>) -> TestFn<Ctx> {
-        match operator {
-            Operator::Equal(right) => Arc::new(move |fetcher, ctx| {
-                Ok(fetcher(ctx, &fetcher_args)
-                    .map(|left| left == right)
-                    .unwrap_or_default())
-            }),
-            Operator::LessThan(right) => Arc::new(move |fetcher, ctx| {
-                Ok(fetcher(ctx, &fetcher_args)
-                    .map(|left| left < right)
-                    .unwrap_or_default())
-            }),
-            Operator::LessThanOrEqual(right) => Arc::new(move |fetcher, ctx| {
-                Ok(fetcher(ctx, &fetcher_args)
-                    .map(|left| left <= right)
-                    .unwrap_or_default())
-            }),
-            Operator::GreaterThan(right) => Arc::new(move |fetcher, ctx| {
-                Ok(fetcher(ctx, &fetcher_args)
-                    .map(|left| left > right)
-                    .unwrap_or_default())
-            }),
-            Operator::GreaterThanOrEqual(right) => Arc::new(move |fetcher, ctx| {
-                Ok(fetcher(ctx, &fetcher_args)
-                    .map(|left| left >= right)
-                    .unwrap_or_default())
-            }),
-            Operator::InList(list) => Arc::new(move |fetcher, ctx| {
-                Ok(fetcher(ctx, &fetcher_args)
-                    .map(|val| list.contains(&val))
-                    .unwrap_or_default())
-            }),
-            Operator::Regex(regex) => Arc::new(move |fetcher, ctx| {
-                Ok((fetcher(ctx, &fetcher_args).as_ref())
-                    .and_then(|val| val.as_str())
-                    .map(|s| regex.is_match(s))
-                    .unwrap_or_default())
-            }),
-            Operator::RegexSet(regex_set) => Arc::new(move |fetcher, ctx| {
-                Ok((fetcher(ctx, &fetcher_args).as_ref())
-                    .and_then(|val| val.as_str())
-                    .map(|s| regex_set.is_match(s))
-                    .unwrap_or_default())
-            }),
-            Operator::IpSet(set) => Arc::new(move |fetcher, ctx| {
-                Ok((fetcher(ctx, &fetcher_args).as_ref())
-                    .and_then(|val| val.as_ip())
-                    .map(|ip| set.longest_match(&IpNet::from(ip)).is_some())
-                    .unwrap_or_default())
-            }),
-            Operator::Custom(check_fn) => {
-                Arc::new(move |fetcher, ctx| match fetcher(ctx, &fetcher_args) {
-                    Some(val) => check_fn(ctx, val),
+    fn compile_condition(
+        fetcher_fn: AnyFetcherFn<Ctx>,
+        fetcher_args: Vec<String>,
+        operator: Operator<Ctx>,
+    ) -> AnyEvalFn<Ctx> {
+        match (fetcher_fn, operator) {
+            // Equal
+            (AnyFetcherFn::Sync(fetcher_fn), Operator::Equal(right)) => {
+                AnyEvalFn::Sync(Arc::new(move |ctx| {
+                    Ok(fetcher_fn(ctx, &fetcher_args)
+                        .map(|left| left == right)
+                        .unwrap_or_default())
+                }))
+            }
+            (AnyFetcherFn::Async(fetcher_fn), Operator::Equal(right)) => {
+                let right = Arc::new(right);
+                AnyEvalFn::Async(Arc::new(move |ctx| {
+                    let right = right.clone();
+                    let value = fetcher_fn(ctx, &fetcher_args);
+                    Box::pin(async move {
+                        Ok(value.await.map(|left| left == *right).unwrap_or_default())
+                    })
+                }))
+            }
+
+            // LessThan
+            (AnyFetcherFn::Sync(fetcher_fn), Operator::LessThan(right)) => {
+                AnyEvalFn::Sync(Arc::new(move |ctx| {
+                    Ok(fetcher_fn(ctx, &fetcher_args)
+                        .map(|left| left < right)
+                        .unwrap_or_default())
+                }))
+            }
+            (AnyFetcherFn::Async(fetcher_fn), Operator::LessThan(right)) => {
+                let right = Arc::new(right);
+                AnyEvalFn::Async(Arc::new(move |ctx| {
+                    let right = right.clone();
+                    let value = fetcher_fn(ctx, &fetcher_args);
+                    Box::pin(async move {
+                        Ok(value.await.map(|left| left < *right).unwrap_or_default())
+                    })
+                }))
+            }
+
+            // LessThanOrEqual
+            (AnyFetcherFn::Sync(fetcher_fn), Operator::LessThanOrEqual(right)) => {
+                AnyEvalFn::Sync(Arc::new(move |ctx| {
+                    Ok(fetcher_fn(ctx, &fetcher_args)
+                        .map(|left| left <= right)
+                        .unwrap_or_default())
+                }))
+            }
+            (AnyFetcherFn::Async(fetcher_fn), Operator::LessThanOrEqual(right)) => {
+                let right = Arc::new(right);
+                AnyEvalFn::Async(Arc::new(move |ctx| {
+                    let right = right.clone();
+                    let value = fetcher_fn(ctx, &fetcher_args);
+                    Box::pin(async move {
+                        Ok(value.await.map(|left| left <= *right).unwrap_or_default())
+                    })
+                }))
+            }
+
+            // GreaterThan
+            (AnyFetcherFn::Sync(fetcher_fn), Operator::GreaterThan(right)) => {
+                AnyEvalFn::Sync(Arc::new(move |ctx| {
+                    Ok(fetcher_fn(ctx, &fetcher_args)
+                        .map(|left| left > right)
+                        .unwrap_or_default())
+                }))
+            }
+            (AnyFetcherFn::Async(fetcher_fn), Operator::GreaterThan(right)) => {
+                let right = Arc::new(right);
+                AnyEvalFn::Async(Arc::new(move |ctx| {
+                    let right = right.clone();
+                    let value = fetcher_fn(ctx, &fetcher_args);
+                    Box::pin(async move {
+                        Ok(value.await.map(|left| left > *right).unwrap_or_default())
+                    })
+                }))
+            }
+
+            // GreaterThanOrEqual
+            (AnyFetcherFn::Sync(fetcher_fn), Operator::GreaterThanOrEqual(right)) => {
+                AnyEvalFn::Sync(Arc::new(move |ctx| {
+                    Ok(fetcher_fn(ctx, &fetcher_args)
+                        .map(|left| left >= right)
+                        .unwrap_or_default())
+                }))
+            }
+            (AnyFetcherFn::Async(fetcher_fn), Operator::GreaterThanOrEqual(right)) => {
+                let right = Arc::new(right);
+                AnyEvalFn::Async(Arc::new(move |ctx| {
+                    let right = right.clone();
+                    let value = fetcher_fn(ctx, &fetcher_args);
+                    Box::pin(async move {
+                        Ok(value.await.map(|left| left >= *right).unwrap_or_default())
+                    })
+                }))
+            }
+
+            // InList
+            (AnyFetcherFn::Sync(fetcher_fn), Operator::InList(list)) => {
+                AnyEvalFn::Sync(Arc::new(move |ctx| {
+                    Ok(fetcher_fn(ctx, &fetcher_args)
+                        .map(|val| list.contains(&val))
+                        .unwrap_or_default())
+                }))
+            }
+            (AnyFetcherFn::Async(fetcher_fn), Operator::InList(list)) => {
+                let list = Arc::new(list);
+                AnyEvalFn::Async(Arc::new(move |ctx| {
+                    let list = list.clone();
+                    let value = fetcher_fn(ctx, &fetcher_args);
+                    Box::pin(async move {
+                        Ok((value.await)
+                            .map(|val| list.contains(&val))
+                            .unwrap_or_default())
+                    })
+                }))
+            }
+
+            // Regex
+            (AnyFetcherFn::Sync(fetcher_fn), Operator::Regex(regex)) => {
+                AnyEvalFn::Sync(Arc::new(move |ctx| {
+                    Ok((fetcher_fn(ctx, &fetcher_args).as_ref())
+                        .and_then(|val| val.as_str())
+                        .map(|val| regex.is_match(val))
+                        .unwrap_or_default())
+                }))
+            }
+            (AnyFetcherFn::Async(fetcher_fn), Operator::Regex(regex)) => {
+                let regex = Arc::new(regex);
+                AnyEvalFn::Async(Arc::new(move |ctx| {
+                    let regex = regex.clone();
+                    let value = fetcher_fn(ctx, &fetcher_args);
+                    Box::pin(async move {
+                        Ok((value.await.as_ref())
+                            .and_then(|val| val.as_str())
+                            .map(|val| regex.is_match(val))
+                            .unwrap_or_default())
+                    })
+                }))
+            }
+
+            // RegexSet
+            (AnyFetcherFn::Sync(fetcher_fn), Operator::RegexSet(regex_set)) => {
+                AnyEvalFn::Sync(Arc::new(move |ctx| {
+                    Ok((fetcher_fn(ctx, &fetcher_args).as_ref())
+                        .and_then(|val| val.as_str())
+                        .map(|s| regex_set.is_match(s))
+                        .unwrap_or_default())
+                }))
+            }
+            (AnyFetcherFn::Async(fetcher_fn), Operator::RegexSet(regex_set)) => {
+                let regex_set = Arc::new(regex_set);
+                AnyEvalFn::Async(Arc::new(move |ctx| {
+                    let regex_set = regex_set.clone();
+                    let value = fetcher_fn(ctx, &fetcher_args);
+                    Box::pin(async move {
+                        Ok((value.await.as_ref())
+                            .and_then(|val| val.as_str())
+                            .map(|s| regex_set.is_match(s))
+                            .unwrap_or_default())
+                    })
+                }))
+            }
+
+            // IpSet
+            (AnyFetcherFn::Sync(fetcher_fn), Operator::IpSet(set)) => {
+                AnyEvalFn::Sync(Arc::new(move |ctx| {
+                    Ok(fetcher_fn(ctx, &fetcher_args)
+                        .and_then(|val| val.as_ip())
+                        .map(|ip| set.longest_match(&IpNet::from(ip)).is_some())
+                        .unwrap_or_default())
+                }))
+            }
+            (AnyFetcherFn::Async(fetcher_fn), Operator::IpSet(set)) => {
+                let set = Arc::new(set);
+                AnyEvalFn::Async(Arc::new(move |ctx| {
+                    let set = set.clone();
+                    let value = fetcher_fn(ctx, &fetcher_args);
+                    Box::pin(async move {
+                        Ok((value.await)
+                            .and_then(|val| val.as_ip())
+                            .map(|ip| set.longest_match(&IpNet::from(ip)).is_some())
+                            .unwrap_or_default())
+                    })
+                }))
+            }
+
+            // Custom operator
+            (AnyFetcherFn::Sync(fetcher_fn), Operator::Custom(op_fn)) => {
+                AnyEvalFn::Sync(Arc::new(move |ctx| match fetcher_fn(ctx, &fetcher_args) {
+                    Some(val) => op_fn(ctx, val),
                     None => Ok(false),
-                })
+                }))
+            }
+            (AnyFetcherFn::Async(fetcher_fn), Operator::Custom(op_fn)) => {
+                let op_fn: Arc<CheckFn<Ctx>> = op_fn.into();
+                AnyEvalFn::Async(Arc::new(move |ctx| {
+                    let op_fn = op_fn.clone();
+                    let value = fetcher_fn(ctx, &fetcher_args);
+                    Box::pin(async move {
+                        match value.await {
+                            Some(val) => op_fn(ctx, val),
+                            None => Ok(false),
+                        }
+                    })
+                }))
+            }
+
+            // Custom async operator
+            (AnyFetcherFn::Sync(fetcher_fn), Operator::CustomAsync(op_fn)) => {
+                let op_fn: Arc<AsyncCheckFn<Ctx>> = op_fn.into();
+                AnyEvalFn::Async(Arc::new(move |ctx| {
+                    let op_fn = op_fn.clone();
+                    match fetcher_fn(ctx, &fetcher_args) {
+                        Some(value) => Box::pin(async move { op_fn(ctx, value).await }),
+                        None => Box::pin(async { Ok(false) }),
+                    }
+                }))
+            }
+            (AnyFetcherFn::Async(fetcher_fn), Operator::CustomAsync(op_fn)) => {
+                let op_fn: Arc<AsyncCheckFn<Ctx>> = op_fn.into();
+                AnyEvalFn::Async(Arc::new(move |ctx| {
+                    let op_fn = op_fn.clone();
+                    let value = fetcher_fn(ctx, &fetcher_args);
+                    Box::pin(async move {
+                        match value.await {
+                            Some(val) => op_fn(ctx, val).await,
+                            None => Ok(false),
+                        }
+                    })
+                }))
             }
         }
     }
@@ -331,7 +592,10 @@ impl<Ctx: ?Sized> Rule<Ctx> {
     /// Evaluates a rule using the provided context
     pub fn evaluate(&self, context: &Ctx) -> StdResult<bool, DynError> {
         match self {
-            Rule::Leaf(Condition(test_fn, fetcher_fn)) => test_fn(*fetcher_fn, context),
+            Rule::Leaf(Condition(AnyEvalFn::Sync(eval_fn))) => eval_fn(context),
+            Rule::Leaf(Condition(AnyEvalFn::Async(_))) => {
+                Err("async rules are not supported in sync context".into())
+            }
             Rule::Any(subrules) => {
                 for rule in subrules {
                     if rule.evaluate(context)? {
@@ -349,6 +613,31 @@ impl<Ctx: ?Sized> Rule<Ctx> {
                 Ok(true)
             }
             Rule::Not(subrule) => Ok(!subrule.evaluate(context)?),
+        }
+    }
+
+    /// Evaluates a rule asynchronously using the provided context
+    pub async fn evaluate_async(&self, context: &Ctx) -> StdResult<bool, DynError> {
+        match self {
+            Rule::Leaf(Condition(AnyEvalFn::Sync(eval_fn))) => eval_fn(context),
+            Rule::Leaf(Condition(AnyEvalFn::Async(eval_fn))) => eval_fn(context).await,
+            Rule::Any(subrules) => {
+                for rule in subrules {
+                    if Box::pin(rule.evaluate_async(context)).await? {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            }
+            Rule::All(subrules) => {
+                for rule in subrules {
+                    if !Box::pin(rule.evaluate_async(context)).await? {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
+            Rule::Not(subrule) => Ok(!Box::pin(subrule.evaluate_async(context)).await?),
         }
     }
 }

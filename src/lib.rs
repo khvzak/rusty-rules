@@ -1,8 +1,5 @@
 use std::collections::HashMap;
-use std::error::Error as StdError;
 use std::fmt::Debug;
-use std::future::Future;
-use std::pin::Pin;
 use std::result::Result as StdResult;
 use std::sync::Arc;
 
@@ -14,41 +11,12 @@ pub use error::Error;
 pub use matcher::{
     BoolMatcher, IpMatcher, Matcher, NumberMatcher, Operator, RegexMatcher, StringMatcher,
 };
+pub use types::{AsyncCheckFn, AsyncFetcherFn, CheckFn, FetcherFn};
 pub use value::Value;
 
-#[cfg(not(feature = "send"))]
-pub trait MaybeSend {}
-#[cfg(not(feature = "send"))]
-impl<T: ?Sized> MaybeSend for T {}
-
-#[cfg(feature = "send")]
-pub trait MaybeSend: Send {}
-#[cfg(feature = "send")]
-impl<T: Send + ?Sized> MaybeSend for T {}
-
-#[cfg(not(feature = "send"))]
-pub trait MaybeSync {}
-#[cfg(not(feature = "send"))]
-impl<T: ?Sized> MaybeSync for T {}
-
-#[cfg(feature = "send")]
-pub trait MaybeSync: Sync {}
-#[cfg(feature = "send")]
-impl<T: Sync + ?Sized> MaybeSync for T {}
-
-#[cfg(not(feature = "send"))]
-type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
-
-#[cfg(feature = "send")]
-type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+use crate::types::{AsyncEvalFn, DynError, EvalFn, MaybeSend, MaybeSync, OperatorBuilder};
 
 pub(crate) type Result<T> = StdResult<T, error::Error>;
-
-#[cfg(not(feature = "send"))]
-pub(crate) type DynError = Box<dyn StdError>;
-
-#[cfg(feature = "send")]
-pub(crate) type DynError = Box<dyn StdError + Send + Sync>;
 
 /// Represents a rule, which can be a condition or a logical combination
 pub enum Rule<Ctx: ?Sized + 'static> {
@@ -127,12 +95,6 @@ pub(crate) struct FetcherKey {
     args: Vec<String>,
 }
 
-/// Callback type for fetchers
-pub type FetcherFn<Ctx> = for<'a> fn(&'a Ctx, &[String]) -> Option<Value<'a>>;
-
-/// Callback type for async fetchers
-pub type AsyncFetcherFn<Ctx> = for<'a> fn(&'a Ctx, &[String]) -> BoxFuture<'a, Option<Value<'a>>>;
-
 enum AnyFetcherFn<Ctx: ?Sized> {
     Sync(FetcherFn<Ctx>),
     Async(AsyncFetcherFn<Ctx>),
@@ -148,47 +110,6 @@ impl<Ctx: ?Sized> Clone for AnyFetcherFn<Ctx> {
 }
 
 impl<Ctx: ?Sized> Copy for AnyFetcherFn<Ctx> {}
-
-/// Callback type for operators
-#[cfg(not(feature = "send"))]
-type OperatorBuilder<Ctx> = Arc<dyn Fn(&JsonValue) -> StdResult<Operator<Ctx>, DynError>>;
-
-/// Callback type for operators
-#[cfg(feature = "send")]
-type OperatorBuilder<Ctx> =
-    Arc<dyn Fn(&JsonValue) -> StdResult<Operator<Ctx>, DynError> + Send + Sync>;
-
-/// Callback type for operator check function
-#[cfg(not(feature = "send"))]
-pub type CheckFn<Ctx> = dyn Fn(&Ctx, Value) -> StdResult<bool, DynError>;
-
-/// Callback type for operator check function
-#[cfg(feature = "send")]
-pub type CheckFn<Ctx> = dyn Fn(&Ctx, Value) -> StdResult<bool, DynError> + Send + Sync;
-
-/// Callback type for async operator check function
-#[cfg(not(feature = "send"))]
-pub type AsyncCheckFn<Ctx> =
-    dyn for<'a> Fn(&'a Ctx, Value<'a>) -> BoxFuture<'a, StdResult<bool, DynError>>;
-
-/// Callback type for async operator check function
-#[cfg(feature = "send")]
-pub type AsyncCheckFn<Ctx> =
-    dyn for<'a> Fn(&'a Ctx, Value<'a>) -> BoxFuture<'a, StdResult<bool, DynError>> + Send + Sync;
-
-#[cfg(not(feature = "send"))]
-type EvalFn<Ctx> = Arc<dyn Fn(&Ctx) -> StdResult<bool, DynError>>;
-
-#[cfg(feature = "send")]
-type EvalFn<Ctx> = Arc<dyn Fn(&Ctx) -> StdResult<bool, DynError> + Send + Sync>;
-
-#[cfg(not(feature = "send"))]
-pub(crate) type AsyncEvalFn<Ctx> =
-    Arc<dyn for<'a> Fn(&'a Ctx) -> BoxFuture<'a, StdResult<bool, DynError>>>;
-
-#[cfg(feature = "send")]
-pub(crate) type AsyncEvalFn<Ctx> =
-    Arc<dyn for<'a> Fn(&'a Ctx) -> BoxFuture<'a, StdResult<bool, DynError>> + Send + Sync>;
 
 enum AnyEvalFn<Ctx: ?Sized> {
     Sync(EvalFn<Ctx>),
@@ -307,7 +228,8 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                                         .map_err(|err| Error::operator(op, &name, err));
                                 }
                             }
-                            let eval_fn = Self::compile_condition(fetcher.func, args, operator?);
+                            let eval_fn =
+                                Self::compile_condition(fetcher.func, args.into(), operator?);
 
                             rules.push(Rule::leaf(eval_fn));
                         }
@@ -330,7 +252,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
 
     fn compile_condition(
         fetcher_fn: AnyFetcherFn<Ctx>,
-        fetcher_args: Vec<String>,
+        fetcher_args: Arc<[String]>,
         operator: Operator<Ctx>,
     ) -> AnyEvalFn<Ctx> {
         match (fetcher_fn, operator) {
@@ -346,7 +268,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                 let right = Arc::new(right);
                 AnyEvalFn::Async(Arc::new(move |ctx| {
                     let right = right.clone();
-                    let value = fetcher_fn(ctx, &fetcher_args);
+                    let value = fetcher_fn(ctx, fetcher_args.clone());
                     Box::pin(async move {
                         Ok(value.await.map(|left| left == *right).unwrap_or_default())
                     })
@@ -365,7 +287,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                 let right = Arc::new(right);
                 AnyEvalFn::Async(Arc::new(move |ctx| {
                     let right = right.clone();
-                    let value = fetcher_fn(ctx, &fetcher_args);
+                    let value = fetcher_fn(ctx, fetcher_args.clone());
                     Box::pin(async move {
                         Ok(value.await.map(|left| left < *right).unwrap_or_default())
                     })
@@ -384,7 +306,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                 let right = Arc::new(right);
                 AnyEvalFn::Async(Arc::new(move |ctx| {
                     let right = right.clone();
-                    let value = fetcher_fn(ctx, &fetcher_args);
+                    let value = fetcher_fn(ctx, fetcher_args.clone());
                     Box::pin(async move {
                         Ok(value.await.map(|left| left <= *right).unwrap_or_default())
                     })
@@ -403,7 +325,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                 let right = Arc::new(right);
                 AnyEvalFn::Async(Arc::new(move |ctx| {
                     let right = right.clone();
-                    let value = fetcher_fn(ctx, &fetcher_args);
+                    let value = fetcher_fn(ctx, fetcher_args.clone());
                     Box::pin(async move {
                         Ok(value.await.map(|left| left > *right).unwrap_or_default())
                     })
@@ -422,7 +344,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                 let right = Arc::new(right);
                 AnyEvalFn::Async(Arc::new(move |ctx| {
                     let right = right.clone();
-                    let value = fetcher_fn(ctx, &fetcher_args);
+                    let value = fetcher_fn(ctx, fetcher_args.clone());
                     Box::pin(async move {
                         Ok(value.await.map(|left| left >= *right).unwrap_or_default())
                     })
@@ -441,7 +363,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                 let list = Arc::new(list);
                 AnyEvalFn::Async(Arc::new(move |ctx| {
                     let list = list.clone();
-                    let value = fetcher_fn(ctx, &fetcher_args);
+                    let value = fetcher_fn(ctx, fetcher_args.clone());
                     Box::pin(async move {
                         Ok((value.await)
                             .map(|val| list.contains(&val))
@@ -463,7 +385,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                 let regex = Arc::new(regex);
                 AnyEvalFn::Async(Arc::new(move |ctx| {
                     let regex = regex.clone();
-                    let value = fetcher_fn(ctx, &fetcher_args);
+                    let value = fetcher_fn(ctx, fetcher_args.clone());
                     Box::pin(async move {
                         Ok((value.await.as_ref())
                             .and_then(|val| val.as_str())
@@ -486,7 +408,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                 let regex_set = Arc::new(regex_set);
                 AnyEvalFn::Async(Arc::new(move |ctx| {
                     let regex_set = regex_set.clone();
-                    let value = fetcher_fn(ctx, &fetcher_args);
+                    let value = fetcher_fn(ctx, fetcher_args.clone());
                     Box::pin(async move {
                         Ok((value.await.as_ref())
                             .and_then(|val| val.as_str())
@@ -509,7 +431,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                 let set = Arc::new(set);
                 AnyEvalFn::Async(Arc::new(move |ctx| {
                     let set = set.clone();
-                    let value = fetcher_fn(ctx, &fetcher_args);
+                    let value = fetcher_fn(ctx, fetcher_args.clone());
                     Box::pin(async move {
                         Ok((value.await)
                             .and_then(|val| val.as_ip())
@@ -530,7 +452,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                 let op_fn: Arc<CheckFn<Ctx>> = op_fn.into();
                 AnyEvalFn::Async(Arc::new(move |ctx| {
                     let op_fn = op_fn.clone();
-                    let value = fetcher_fn(ctx, &fetcher_args);
+                    let value = fetcher_fn(ctx, fetcher_args.clone());
                     Box::pin(async move {
                         match value.await {
                             Some(val) => op_fn(ctx, val),
@@ -555,7 +477,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                 let op_fn: Arc<AsyncCheckFn<Ctx>> = op_fn.into();
                 AnyEvalFn::Async(Arc::new(move |ctx| {
                     let op_fn = op_fn.clone();
-                    let value = fetcher_fn(ctx, &fetcher_args);
+                    let value = fetcher_fn(ctx, fetcher_args.clone());
                     Box::pin(async move {
                         match value.await {
                             Some(val) => op_fn(ctx, val).await,
@@ -661,6 +583,7 @@ impl JsonValueExt for JsonValue {
 
 mod error;
 mod matcher;
+mod types;
 mod value;
 
 #[cfg(test)]

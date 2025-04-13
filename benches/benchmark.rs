@@ -1,73 +1,74 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::net::IpAddr;
 use std::str::FromStr;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use rusty_rules::{Engine, IpMatcher, NumberMatcher, RegexMatcher, StringMatcher, Value};
 use serde_json::json;
+use vrl::compiler::{state::RuntimeState, Context, Program, TargetValue, TimeZone};
+use vrl::diagnostic::Formatter;
+use vrl::value::{ObjectMap, Secrets, Value as VrlValue};
 
-// Test context structure (copied from your tests)
-#[derive(Debug, Clone)]
-struct TestContext {
-    method: &'static str,
-    path: String,
-    headers: HashMap<String, String>,
-    params: HashMap<String, String>,
-    ip: IpAddr,
-    port: i64,
-}
-
-fn create_context() -> TestContext {
-    TestContext {
+// A unified context for both engines
+fn create_context() -> VrlValue {
+    vrl::value!({
         method: "POST",
-        path: "/api/v2/users/123/profile".to_string(),
+        path: "/api/v2/users/123/profile",
         headers: {
-            let mut h = HashMap::new();
-            h.insert("host".to_string(), "api.example.com".to_string());
-            h.insert("user-agent".to_string(), "Mozilla/5.0".to_string());
-            h.insert("x-forwarded-for".to_string(), "10.0.0.1".to_string());
-            h.insert("content-type".to_string(), "application/json".to_string());
-            h.insert("authorization".to_string(), "Bearer token123".to_string());
-            h
+            "host": "api.example.com",
+            "user-agent": "Mozilla/5.0",
+            "x-forwarded-for": "10.0.0.1",
+            "content-type": "application/json",
+            "authorization":  "Bearer token123",
+            "x-beta-access": "true",
         },
         params: {
-            let mut p = HashMap::new();
-            p.insert("user_id".to_string(), "123".to_string());
-            p.insert("version".to_string(), "2".to_string());
-            p.insert("format".to_string(), "json".to_string());
-            p.insert("include_meta".to_string(), "true".to_string());
-            p.insert("fields".to_string(), "name,email,address".to_string());
-            p
+            "user_id": "123",
+            "version": "beta",
+            "format": "json",
+            "include_meta": "true",
+            "fields": "name,email,address",
         },
-        ip: IpAddr::from_str("192.168.1.100").unwrap(),
+        ip: "192.168.1.100",
         port: 8443,
-    }
+    })
 }
 
-fn setup_benchmark_engine() -> Engine<TestContext> {
+fn setup_rules_engine() -> Engine<ObjectMap> {
     let mut engine = Engine::new();
 
     // Register all fetchers
-    engine.register_fetcher("method", StringMatcher, |ctx: &TestContext, _args| {
-        Ok(Value::from(ctx.method))
+    engine.register_fetcher("method", StringMatcher, |ctx: &ObjectMap, _args| {
+        Ok(Value::from(ctx.get("method").unwrap().as_str()))
     });
 
     engine.register_fetcher("path", RegexMatcher, |ctx, _args| {
-        Ok(Value::from(&ctx.path))
+        Ok(Value::from(ctx.get("path").unwrap().as_str()))
     });
 
     engine.register_fetcher("header", StringMatcher, |ctx, args| {
-        Ok((args.first()).and_then(|name| ctx.headers.get(name)).into())
+        let headers = ctx.get("headers").unwrap().as_object().unwrap();
+        let name = args.first().unwrap();
+        let value = headers.get(name.as_str()).unwrap().as_str();
+        Ok(Value::from(value))
     });
 
     engine.register_fetcher("param", StringMatcher, |ctx, args| {
-        Ok((args.first()).and_then(|name| ctx.params.get(name)).into())
+        let params = ctx.get("params").unwrap().as_object().unwrap();
+        let name = args.first().unwrap();
+        let value = params.get(name.as_str()).unwrap().as_str();
+        Ok(Value::from(value))
     });
 
-    engine.register_fetcher("ip", IpMatcher, |ctx, _args| Ok(Value::Ip(ctx.ip)));
+    engine.register_fetcher("ip", IpMatcher, |ctx, _args| {
+        let ip_str = ctx.get("ip").unwrap().as_str().unwrap();
+        let ip = IpAddr::from_str(&ip_str).unwrap();
+        Ok(Value::Ip(ip))
+    });
 
     engine.register_fetcher("port", NumberMatcher, |ctx, _args| {
-        Ok(Value::from(ctx.port))
+        let port = ctx.get("port").unwrap().as_integer();
+        Ok(Value::from(port))
     });
 
     engine
@@ -103,7 +104,7 @@ fn create_rule() -> serde_json::Value {
                 {"header(authorization)": {"re": "^Bearer [A-Za-z0-9]+$"}}
             ]
         },
-        {"path": "^/api/v[0-9]+/users/[0-9]+/profile$"},
+        {"path": "^/api/v[0-9]/users/[0-9]+/profile$"},
         {
             "any": [
                 {"param(version)": ["1", "2", "3"]},
@@ -118,17 +119,80 @@ fn create_rule() -> serde_json::Value {
     ])
 }
 
-fn benchmark_evaluation(c: &mut Criterion) {
-    let engine = setup_benchmark_engine();
-    let context = create_context();
-    let rule = engine.parse_value(&create_rule()).unwrap();
+fn setup_vrl_engine() -> Program {
+    // Create a VRL program that evaluates the same rules as the rusty-rules implementation
+    let vrl_program = r#"
+    # Condition 1: Method check
+    result = .method == "POST" || .method == "PUT" || .method == "PATCH" ||
+        (.method == "GET" && match!(.params.fields, r'^[a-z,]+$') && .params.include_meta == "true");
 
+    # Condition 2: Port and IP check
+    result = result &&
+        !(to_int!(.port) < 1024 ||
+        to_int!(.port) > 49151 ||
+        ip_cidr_contains!("10.0.0.0/8", .ip) ||
+        ip_cidr_contains!("172.16.0.0/12", .ip) ||
+        ip_cidr_contains!("127.0.0.0/8", .ip));
+
+    # Condition 3: Header checks
+    result = result &&
+        match!(.headers.host, r'^[a-z0-9.-]+\.example\.com$') &&
+        get!(.headers, ["content-type"]) == "application/json" &&
+        match!(.headers.authorization, r'^Bearer [A-Za-z0-9]+$');
+
+    # Condition 4: Path check
+    result = result && match!(.path, r'^/api/v[0-9]/users/[0-9]+/profile$');
+
+    # Condition 5: Version check
+    result = result &&
+        (.params.version == "1" || .params.version == "2" || .params.version == "3" ||
+        (.params.version == "beta" && get!(.headers, ["x-beta-access"]) == "true"));
+
+    result
+    "#;
+
+    let fns = vrl::stdlib::all();
+
+    let compilation = match vrl::compiler::compile(vrl_program, &fns) {
+        Ok(compilation_result) => compilation_result,
+        Err(e) => {
+            panic!("{}", Formatter::new(vrl_program, e));
+        }
+    };
+
+    compilation.program
+}
+
+fn benchmark_evaluation(c: &mut Criterion) {
     let mut group = c.benchmark_group("evaluation");
     group.sample_size(100);
 
-    group.bench_function("rules_evaluation", |b| {
+    group.bench_function("rusty_rules_evaluation", |b| {
+        let engine = setup_rules_engine();
+        let vrl_value = create_context();
+        let context = vrl_value.as_object().unwrap();
+        let rule = engine.parse_value(&create_rule()).unwrap();
+
         b.iter(|| {
-            black_box(rule.evaluate(&context).unwrap());
+            let result = black_box(rule.evaluate(context).unwrap());
+            assert!(result);
+        });
+    });
+
+    group.bench_function("vrl_evaluation", |b| {
+        let vrl_program = setup_vrl_engine();
+        let mut target = TargetValue {
+            value: create_context(),
+            metadata: VrlValue::Object(BTreeMap::new()),
+            secrets: Secrets::default(),
+        };
+        let mut state = RuntimeState::default();
+        let timezone = TimeZone::default();
+        let mut ctx = Context::new(&mut target, &mut state, &timezone);
+
+        b.iter(|| {
+            let result = black_box(vrl_program.resolve(&mut ctx).unwrap());
+            assert!(result.as_boolean().unwrap());
         });
     });
 

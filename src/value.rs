@@ -14,6 +14,7 @@ pub enum Value<'a> {
     Number(Number),
     Bool(bool),
     Ip(IpAddr),
+    Array(Vec<Value<'a>>),
 }
 
 impl Value<'_> {
@@ -24,6 +25,7 @@ impl Value<'_> {
             Value::Number(n) => Value::Number(n),
             Value::Bool(b) => Value::Bool(b),
             Value::Ip(ip) => Value::Ip(ip),
+            Value::Array(arr) => Value::Array(arr.into_iter().map(|v| v.into_static()).collect()),
         }
     }
 
@@ -66,6 +68,22 @@ impl Value<'_> {
             _ => None,
         }
     }
+
+    /// Returns the value as an array if it is an array
+    pub fn as_array(&self) -> Option<&Vec<Self>> {
+        match self {
+            Value::Array(arr) => Some(arr),
+            _ => None,
+        }
+    }
+
+    /// Returns the value as a mutable array if it is an array
+    pub fn as_array_mut(&mut self) -> Option<&mut Vec<Self>> {
+        match self {
+            Value::Array(arr) => Some(arr),
+            _ => None,
+        }
+    }
 }
 
 impl PartialOrd for Value<'_> {
@@ -84,6 +102,7 @@ impl PartialOrd for Value<'_> {
             }
             (Value::Bool(i), Value::Bool(j)) => i.partial_cmp(j),
             (Value::Ip(i), Value::Ip(j)) => i.partial_cmp(j),
+            (Value::Array(i), Value::Array(j)) => i.partial_cmp(j),
             _ => None,
         }
     }
@@ -98,6 +117,13 @@ impl TryFrom<serde_json::Value> for Value<'_> {
             serde_json::Value::String(s) => Ok(Value::String(Cow::Owned(s))),
             serde_json::Value::Number(n) => Ok(Value::Number(n)),
             serde_json::Value::Bool(b) => Ok(Value::Bool(b)),
+            serde_json::Value::Array(arr) => {
+                let arr = arr
+                    .into_iter()
+                    .map(|v| Value::try_from(v))
+                    .collect::<StdResult<Vec<_>, _>>()?;
+                Ok(Value::Array(arr))
+            }
             _ => Err(()),
         }
     }
@@ -112,6 +138,13 @@ impl<'a> TryFrom<&'a serde_json::Value> for Value<'a> {
             serde_json::Value::String(s) => Ok(Value::String(Cow::Borrowed(s))),
             serde_json::Value::Number(n) => Ok(Value::Number(n.clone())),
             serde_json::Value::Bool(b) => Ok(Value::Bool(*b)),
+            serde_json::Value::Array(arr) => {
+                let arr = arr
+                    .iter()
+                    .map(|v| Value::try_from(v))
+                    .collect::<StdResult<Vec<_>, _>>()?;
+                Ok(Value::Array(arr))
+            }
             _ => Err(()),
         }
     }
@@ -185,5 +218,12 @@ where
             Some(v) => v.into(),
             None => Value::None,
         }
+    }
+}
+
+impl<'a, T: Into<Value<'a>>> From<Vec<T>> for Value<'a> {
+    #[inline(always)]
+    fn from(arr: Vec<T>) -> Self {
+        Value::Array(arr.into_iter().map(|v| v.into()).collect())
     }
 }

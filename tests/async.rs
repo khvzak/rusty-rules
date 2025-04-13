@@ -49,7 +49,7 @@ fn setup_async_engine() -> Engine<TestContext> {
         Box::pin(async move {
             // Simulate async operation with delay
             sleep(Duration::from_millis(10)).await;
-            Some(Value::from(&ctx.method))
+            Ok(Value::from(&ctx.method))
         })
     });
 
@@ -57,7 +57,7 @@ fn setup_async_engine() -> Engine<TestContext> {
     engine.register_async_fetcher("path", RegexMatcher, |ctx, _args| {
         Box::pin(async move {
             sleep(Duration::from_millis(10)).await;
-            Some(Value::from(&ctx.path))
+            Ok(Value::from(&ctx.path))
         })
     });
 
@@ -67,8 +67,7 @@ fn setup_async_engine() -> Engine<TestContext> {
         let name = args.first().cloned();
         Box::pin(async move {
             sleep(Duration::from_millis(10)).await;
-            name.and_then(|name| ctx.headers.get(&name))
-                .map(Value::from)
+            Ok(name.and_then(|name| ctx.headers.get(&name)).into())
         })
     });
 
@@ -77,7 +76,7 @@ fn setup_async_engine() -> Engine<TestContext> {
         let name = args.first().cloned();
         Box::pin(async move {
             sleep(Duration::from_millis(10)).await;
-            name.and_then(|name| ctx.params.get(&name)).map(Value::from)
+            Ok(name.and_then(|name| ctx.params.get(&name)).into())
         })
     });
 
@@ -85,7 +84,7 @@ fn setup_async_engine() -> Engine<TestContext> {
     engine.register_async_fetcher("ip", IpMatcher, |ctx, _args| {
         Box::pin(async move {
             sleep(Duration::from_millis(10)).await;
-            Some(Value::Ip(ctx.ip))
+            Ok(Value::Ip(ctx.ip))
         })
     });
 
@@ -93,7 +92,7 @@ fn setup_async_engine() -> Engine<TestContext> {
     engine.register_async_fetcher("port", NumberMatcher, |ctx, _args| {
         Box::pin(async move {
             sleep(Duration::from_millis(10)).await;
-            Some(Value::from(ctx.port))
+            Ok(Value::from(ctx.port))
         })
     });
 
@@ -101,7 +100,7 @@ fn setup_async_engine() -> Engine<TestContext> {
     engine.register_async_fetcher("status", NumberMatcher, |ctx, _args| {
         Box::pin(async move {
             sleep(Duration::from_millis(10)).await;
-            Some(Value::from(ctx.status as i64))
+            Ok(Value::from(ctx.status as i64))
         })
     });
 

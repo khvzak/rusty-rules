@@ -12,7 +12,7 @@ fn test_lua_operator() {
 
     // Register method fetcher
     engine.register_fetcher("sample", StringMatcher, |_ctx, _args| {
-        Some(Value::from("sample string"))
+        Ok(Value::from("sample string"))
     });
 
     let lua2 = lua.clone();

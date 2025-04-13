@@ -43,39 +43,35 @@ fn setup_engine() -> Engine<TestContext> {
 
     // Register method fetcher
     engine.register_fetcher("method", StringMatcher, |ctx: &TestContext, _args| {
-        Some(Value::from(&ctx.method))
+        Ok(Value::from(&ctx.method))
     });
 
     // Register path fetcher
     engine.register_fetcher("path", RegexMatcher, |ctx, _args| {
-        Some(Value::from(&ctx.path))
+        Ok(Value::from(&ctx.path))
     });
 
     // Register header fetcher
     engine.register_fetcher("header", StringMatcher, |ctx, args| {
-        args.first()
-            .and_then(|name| ctx.headers.get(name))
-            .map(Value::from)
+        Ok(args.first().and_then(|name| ctx.headers.get(name)).into())
     });
 
     // Register param fetcher
     engine.register_fetcher("param", StringMatcher, |ctx, args| {
-        args.first()
-            .and_then(|name| ctx.params.get(name))
-            .map(Value::from)
+        Ok((args.first()).and_then(|name| ctx.params.get(name)).into())
     });
 
     // Register ip fetcher
-    engine.register_fetcher("ip", IpMatcher, |ctx, _args| Some(Value::Ip(ctx.ip)));
+    engine.register_fetcher("ip", IpMatcher, |ctx, _args| Ok(Value::Ip(ctx.ip)));
 
     // Register port fetcher
     engine.register_fetcher("port", NumberMatcher, |ctx, _args| {
-        Some(Value::from(ctx.port))
+        Ok(Value::from(ctx.port))
     });
 
     // Register status fetcher
     engine.register_fetcher("status", NumberMatcher, |ctx, _args| {
-        Some(Value::from(ctx.status as i64))
+        Ok(Value::from(ctx.status as i64))
     });
 
     engine.register_operator("starts_with", |json| {

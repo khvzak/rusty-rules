@@ -49,29 +49,25 @@ fn setup_benchmark_engine() -> Engine<TestContext> {
 
     // Register all fetchers
     engine.register_fetcher("method", StringMatcher, |ctx: &TestContext, _args| {
-        Some(Value::from(ctx.method))
+        Ok(Value::from(ctx.method))
     });
 
     engine.register_fetcher("path", RegexMatcher, |ctx, _args| {
-        Some(Value::from(&ctx.path))
+        Ok(Value::from(&ctx.path))
     });
 
     engine.register_fetcher("header", StringMatcher, |ctx, args| {
-        args.first()
-            .and_then(|name| ctx.headers.get(name))
-            .map(Value::from)
+        Ok((args.first()).and_then(|name| ctx.headers.get(name)).into())
     });
 
     engine.register_fetcher("param", StringMatcher, |ctx, args| {
-        args.first()
-            .and_then(|name| ctx.params.get(name))
-            .map(Value::from)
+        Ok((args.first()).and_then(|name| ctx.params.get(name)).into())
     });
 
-    engine.register_fetcher("ip", IpMatcher, |ctx, _args| Some(Value::Ip(ctx.ip)));
+    engine.register_fetcher("ip", IpMatcher, |ctx, _args| Ok(Value::Ip(ctx.ip)));
 
     engine.register_fetcher("port", NumberMatcher, |ctx, _args| {
-        Some(Value::from(ctx.port))
+        Ok(Value::from(ctx.port))
     });
 
     engine

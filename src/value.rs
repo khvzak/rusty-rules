@@ -9,6 +9,7 @@ use serde_json::Number;
 /// Represents possible values returned by fetchers
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Value<'a> {
+    None,
     String(Cow<'a, str>),
     Number(Number),
     Bool(bool),
@@ -18,6 +19,7 @@ pub enum Value<'a> {
 impl Value<'_> {
     pub(crate) fn into_static(self) -> Value<'static> {
         match self {
+            Value::None => Value::None,
             Value::String(s) => Value::String(Cow::Owned(s.into_owned())),
             Value::Number(n) => Value::Number(n),
             Value::Bool(b) => Value::Bool(b),
@@ -69,6 +71,7 @@ impl Value<'_> {
 impl PartialOrd for Value<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
+            (Value::None, Value::None) => Some(Ordering::Equal),
             (Value::String(s), Value::String(t)) => s.partial_cmp(t),
             (Value::Number(i), Value::Number(j)) => {
                 if let (Some(i), Some(j)) = (i.as_i64(), j.as_i64()) {
@@ -91,6 +94,7 @@ impl TryFrom<serde_json::Value> for Value<'_> {
 
     fn try_from(value: serde_json::Value) -> StdResult<Self, Self::Error> {
         match value {
+            serde_json::Value::Null => Ok(Value::None),
             serde_json::Value::String(s) => Ok(Value::String(Cow::Owned(s))),
             serde_json::Value::Number(n) => Ok(Value::Number(n)),
             serde_json::Value::Bool(b) => Ok(Value::Bool(b)),
@@ -104,6 +108,7 @@ impl<'a> TryFrom<&'a serde_json::Value> for Value<'a> {
 
     fn try_from(value: &'a serde_json::Value) -> StdResult<Self, Self::Error> {
         match value {
+            serde_json::Value::Null => Ok(Value::None),
             serde_json::Value::String(s) => Ok(Value::String(Cow::Borrowed(s))),
             serde_json::Value::Number(n) => Ok(Value::Number(n.clone())),
             serde_json::Value::Bool(b) => Ok(Value::Bool(*b)),
@@ -160,5 +165,18 @@ impl From<IpAddr> for Value<'_> {
     #[inline(always)]
     fn from(ip: IpAddr) -> Self {
         Value::Ip(ip)
+    }
+}
+
+impl<'a, T> From<Option<T>> for Value<'_>
+where
+    T: Into<Value<'a>>,
+{
+    #[inline(always)]
+    fn from(opt: Option<T>) -> Self {
+        match opt {
+            Some(v) => v.into().into_static(),
+            None => Value::None,
+        }
     }
 }

@@ -18,7 +18,7 @@ use crate::types::{AsyncEvalFn, DynError, EvalFn, MaybeSend, MaybeSync, Operator
 
 pub(crate) type Result<T> = StdResult<T, error::Error>;
 
-/// Represents a rule, which can be a condition or a logical combination
+/// Represents a rule, which can be a condition or a logical combination of other rules
 pub enum Rule<Ctx: ?Sized + 'static> {
     Any(Vec<Self>),
     All(Vec<Self>),
@@ -48,6 +48,9 @@ impl<Ctx: ?Sized> Clone for Rule<Ctx> {
     }
 }
 
+/// Represents a condition that can be evaluated
+///
+/// The condition is a wrapper around a function that takes a context and returns a boolean
 #[doc(hidden)]
 pub struct Condition<Ctx: ?Sized>(AnyEvalFn<Ctx>);
 
@@ -88,7 +91,7 @@ impl<Ctx: ?Sized> Rule<Ctx> {
     }
 }
 
-/// Represents a fetcher key like "header(host)" with name and arguments
+/// Represents a fetcher key like `header(host)` with name and arguments
 #[derive(Debug)]
 pub(crate) struct FetcherKey {
     name: String,
@@ -259,9 +262,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
             // Equal
             (AnyFetcherFn::Sync(fetcher_fn), Operator::Equal(right)) => {
                 AnyEvalFn::Sync(Arc::new(move |ctx| {
-                    Ok(fetcher_fn(ctx, &fetcher_args)
-                        .map(|left| left == right)
-                        .unwrap_or_default())
+                    Ok(fetcher_fn(ctx, &fetcher_args)? == right)
                 }))
             }
             (AnyFetcherFn::Async(fetcher_fn), Operator::Equal(right)) => {
@@ -269,18 +270,14 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                 AnyEvalFn::Async(Arc::new(move |ctx| {
                     let right = right.clone();
                     let value = fetcher_fn(ctx, fetcher_args.clone());
-                    Box::pin(async move {
-                        Ok(value.await.map(|left| left == *right).unwrap_or_default())
-                    })
+                    Box::pin(async move { Ok(value.await? == *right) })
                 }))
             }
 
             // LessThan
             (AnyFetcherFn::Sync(fetcher_fn), Operator::LessThan(right)) => {
                 AnyEvalFn::Sync(Arc::new(move |ctx| {
-                    Ok(fetcher_fn(ctx, &fetcher_args)
-                        .map(|left| left < right)
-                        .unwrap_or_default())
+                    Ok(fetcher_fn(ctx, &fetcher_args)? < right)
                 }))
             }
             (AnyFetcherFn::Async(fetcher_fn), Operator::LessThan(right)) => {
@@ -288,18 +285,14 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                 AnyEvalFn::Async(Arc::new(move |ctx| {
                     let right = right.clone();
                     let value = fetcher_fn(ctx, fetcher_args.clone());
-                    Box::pin(async move {
-                        Ok(value.await.map(|left| left < *right).unwrap_or_default())
-                    })
+                    Box::pin(async move { Ok(value.await? < *right) })
                 }))
             }
 
             // LessThanOrEqual
             (AnyFetcherFn::Sync(fetcher_fn), Operator::LessThanOrEqual(right)) => {
                 AnyEvalFn::Sync(Arc::new(move |ctx| {
-                    Ok(fetcher_fn(ctx, &fetcher_args)
-                        .map(|left| left <= right)
-                        .unwrap_or_default())
+                    Ok(fetcher_fn(ctx, &fetcher_args)? <= right)
                 }))
             }
             (AnyFetcherFn::Async(fetcher_fn), Operator::LessThanOrEqual(right)) => {
@@ -307,18 +300,14 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                 AnyEvalFn::Async(Arc::new(move |ctx| {
                     let right = right.clone();
                     let value = fetcher_fn(ctx, fetcher_args.clone());
-                    Box::pin(async move {
-                        Ok(value.await.map(|left| left <= *right).unwrap_or_default())
-                    })
+                    Box::pin(async move { Ok(value.await? <= *right) })
                 }))
             }
 
             // GreaterThan
             (AnyFetcherFn::Sync(fetcher_fn), Operator::GreaterThan(right)) => {
                 AnyEvalFn::Sync(Arc::new(move |ctx| {
-                    Ok(fetcher_fn(ctx, &fetcher_args)
-                        .map(|left| left > right)
-                        .unwrap_or_default())
+                    Ok(fetcher_fn(ctx, &fetcher_args)? > right)
                 }))
             }
             (AnyFetcherFn::Async(fetcher_fn), Operator::GreaterThan(right)) => {
@@ -326,18 +315,14 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                 AnyEvalFn::Async(Arc::new(move |ctx| {
                     let right = right.clone();
                     let value = fetcher_fn(ctx, fetcher_args.clone());
-                    Box::pin(async move {
-                        Ok(value.await.map(|left| left > *right).unwrap_or_default())
-                    })
+                    Box::pin(async move { Ok(value.await? > *right) })
                 }))
             }
 
             // GreaterThanOrEqual
             (AnyFetcherFn::Sync(fetcher_fn), Operator::GreaterThanOrEqual(right)) => {
                 AnyEvalFn::Sync(Arc::new(move |ctx| {
-                    Ok(fetcher_fn(ctx, &fetcher_args)
-                        .map(|left| left >= right)
-                        .unwrap_or_default())
+                    Ok(fetcher_fn(ctx, &fetcher_args)? >= right)
                 }))
             }
             (AnyFetcherFn::Async(fetcher_fn), Operator::GreaterThanOrEqual(right)) => {
@@ -345,18 +330,14 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                 AnyEvalFn::Async(Arc::new(move |ctx| {
                     let right = right.clone();
                     let value = fetcher_fn(ctx, fetcher_args.clone());
-                    Box::pin(async move {
-                        Ok(value.await.map(|left| left >= *right).unwrap_or_default())
-                    })
+                    Box::pin(async move { Ok(value.await? >= *right) })
                 }))
             }
 
             // InList
             (AnyFetcherFn::Sync(fetcher_fn), Operator::InList(list)) => {
                 AnyEvalFn::Sync(Arc::new(move |ctx| {
-                    Ok(fetcher_fn(ctx, &fetcher_args)
-                        .map(|val| list.contains(&val))
-                        .unwrap_or_default())
+                    fetcher_fn(ctx, &fetcher_args).map(|val| list.contains(&val))
                 }))
             }
             (AnyFetcherFn::Async(fetcher_fn), Operator::InList(list)) => {
@@ -364,21 +345,15 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                 AnyEvalFn::Async(Arc::new(move |ctx| {
                     let list = list.clone();
                     let value = fetcher_fn(ctx, fetcher_args.clone());
-                    Box::pin(async move {
-                        Ok((value.await)
-                            .map(|val| list.contains(&val))
-                            .unwrap_or_default())
-                    })
+                    Box::pin(async move { value.await.map(|val| list.contains(&val)) })
                 }))
             }
 
             // Regex
             (AnyFetcherFn::Sync(fetcher_fn), Operator::Regex(regex)) => {
                 AnyEvalFn::Sync(Arc::new(move |ctx| {
-                    Ok((fetcher_fn(ctx, &fetcher_args).as_ref())
-                        .and_then(|val| val.as_str())
-                        .map(|val| regex.is_match(val))
-                        .unwrap_or_default())
+                    fetcher_fn(ctx, &fetcher_args)
+                        .map(|val| val.as_str().map(|s| regex.is_match(s)).unwrap_or(false))
                 }))
             }
             (AnyFetcherFn::Async(fetcher_fn), Operator::Regex(regex)) => {
@@ -387,10 +362,8 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                     let regex = regex.clone();
                     let value = fetcher_fn(ctx, fetcher_args.clone());
                     Box::pin(async move {
-                        Ok((value.await.as_ref())
-                            .and_then(|val| val.as_str())
-                            .map(|val| regex.is_match(val))
-                            .unwrap_or_default())
+                        (value.await)
+                            .map(|val| val.as_str().map(|s| regex.is_match(s)).unwrap_or(false))
                     })
                 }))
             }
@@ -398,10 +371,8 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
             // RegexSet
             (AnyFetcherFn::Sync(fetcher_fn), Operator::RegexSet(regex_set)) => {
                 AnyEvalFn::Sync(Arc::new(move |ctx| {
-                    Ok((fetcher_fn(ctx, &fetcher_args).as_ref())
-                        .and_then(|val| val.as_str())
-                        .map(|s| regex_set.is_match(s))
-                        .unwrap_or_default())
+                    fetcher_fn(ctx, &fetcher_args)
+                        .map(|val| val.as_str().map(|s| regex_set.is_match(s)).unwrap_or(false))
                 }))
             }
             (AnyFetcherFn::Async(fetcher_fn), Operator::RegexSet(regex_set)) => {
@@ -410,10 +381,8 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                     let regex_set = regex_set.clone();
                     let value = fetcher_fn(ctx, fetcher_args.clone());
                     Box::pin(async move {
-                        Ok((value.await.as_ref())
-                            .and_then(|val| val.as_str())
-                            .map(|s| regex_set.is_match(s))
-                            .unwrap_or_default())
+                        (value.await)
+                            .map(|val| val.as_str().map(|s| regex_set.is_match(s)).unwrap_or(false))
                     })
                 }))
             }
@@ -421,10 +390,9 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
             // IpSet
             (AnyFetcherFn::Sync(fetcher_fn), Operator::IpSet(set)) => {
                 AnyEvalFn::Sync(Arc::new(move |ctx| {
-                    Ok(fetcher_fn(ctx, &fetcher_args)
-                        .and_then(|val| val.as_ip())
+                    Ok((fetcher_fn(ctx, &fetcher_args)?.as_ip())
                         .map(|ip| set.longest_match(&IpNet::from(ip)).is_some())
-                        .unwrap_or_default())
+                        .unwrap_or(false))
                 }))
             }
             (AnyFetcherFn::Async(fetcher_fn), Operator::IpSet(set)) => {
@@ -433,19 +401,18 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                     let set = set.clone();
                     let value = fetcher_fn(ctx, fetcher_args.clone());
                     Box::pin(async move {
-                        Ok((value.await)
-                            .and_then(|val| val.as_ip())
+                        Ok((value.await?.as_ip())
                             .map(|ip| set.longest_match(&IpNet::from(ip)).is_some())
-                            .unwrap_or_default())
+                            .unwrap_or(false))
                     })
                 }))
             }
 
             // Custom operator
             (AnyFetcherFn::Sync(fetcher_fn), Operator::Custom(op_fn)) => {
-                AnyEvalFn::Sync(Arc::new(move |ctx| match fetcher_fn(ctx, &fetcher_args) {
-                    Some(val) => op_fn(ctx, val),
-                    None => Ok(false),
+                AnyEvalFn::Sync(Arc::new(move |ctx| {
+                    let value = fetcher_fn(ctx, &fetcher_args)?;
+                    op_fn(ctx, value)
                 }))
             }
             (AnyFetcherFn::Async(fetcher_fn), Operator::Custom(op_fn)) => {
@@ -453,12 +420,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                 AnyEvalFn::Async(Arc::new(move |ctx| {
                     let op_fn = op_fn.clone();
                     let value = fetcher_fn(ctx, fetcher_args.clone());
-                    Box::pin(async move {
-                        match value.await {
-                            Some(val) => op_fn(ctx, val),
-                            None => Ok(false),
-                        }
-                    })
+                    Box::pin(async move { op_fn(ctx, value.await?) })
                 }))
             }
 
@@ -467,10 +429,8 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                 let op_fn: Arc<AsyncCheckFn<Ctx>> = op_fn.into();
                 AnyEvalFn::Async(Arc::new(move |ctx| {
                     let op_fn = op_fn.clone();
-                    match fetcher_fn(ctx, &fetcher_args) {
-                        Some(value) => Box::pin(async move { op_fn(ctx, value).await }),
-                        None => Box::pin(async { Ok(false) }),
-                    }
+                    let value = fetcher_fn(ctx, &fetcher_args);
+                    Box::pin(async move { op_fn(ctx, value?).await })
                 }))
             }
             (AnyFetcherFn::Async(fetcher_fn), Operator::CustomAsync(op_fn)) => {
@@ -478,12 +438,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                 AnyEvalFn::Async(Arc::new(move |ctx| {
                     let op_fn = op_fn.clone();
                     let value = fetcher_fn(ctx, fetcher_args.clone());
-                    Box::pin(async move {
-                        match value.await {
-                            Some(val) => op_fn(ctx, val).await,
-                            None => Ok(false),
-                        }
-                    })
+                    Box::pin(async move { op_fn(ctx, value.await?).await })
                 }))
             }
         }

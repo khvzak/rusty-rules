@@ -138,6 +138,13 @@ impl<'a> From<&'a str> for Value<'a> {
     }
 }
 
+impl<'a> From<Cow<'a, str>> for Value<'a> {
+    #[inline(always)]
+    fn from(s: Cow<'a, str>) -> Self {
+        Value::String(s)
+    }
+}
+
 impl From<i64> for Value<'_> {
     #[inline(always)]
     fn from(i: i64) -> Self {
@@ -168,14 +175,14 @@ impl From<IpAddr> for Value<'_> {
     }
 }
 
-impl<'a, T> From<Option<T>> for Value<'_>
+impl<'a, T> From<Option<T>> for Value<'a>
 where
     T: Into<Value<'a>>,
 {
     #[inline(always)]
     fn from(opt: Option<T>) -> Self {
         match opt {
-            Some(v) => v.into().into_static(),
+            Some(v) => v.into(),
             None => Value::None,
         }
     }

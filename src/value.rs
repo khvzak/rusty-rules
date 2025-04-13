@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 use std::hash::Hash;
 use std::net::IpAddr;
 use std::result::Result as StdResult;
@@ -15,9 +16,10 @@ pub enum Value<'a> {
     Bool(bool),
     Ip(IpAddr),
     Array(Vec<Value<'a>>),
+    Map(BTreeMap<String, Value<'a>>),
 }
 
-impl Value<'_> {
+impl<'a> Value<'a> {
     pub(crate) fn into_static(self) -> Value<'static> {
         match self {
             Value::None => Value::None,
@@ -26,6 +28,9 @@ impl Value<'_> {
             Value::Bool(b) => Value::Bool(b),
             Value::Ip(ip) => Value::Ip(ip),
             Value::Array(arr) => Value::Array(arr.into_iter().map(|v| v.into_static()).collect()),
+            Value::Map(map) => {
+                Value::Map(map.into_iter().map(|(k, v)| (k, v.into_static())).collect())
+            }
         }
     }
 
@@ -70,7 +75,7 @@ impl Value<'_> {
     }
 
     /// Returns the value as an array if it is an array
-    pub fn as_array(&self) -> Option<&Vec<Self>> {
+    pub fn as_array(&self) -> Option<&Vec<Value<'a>>> {
         match self {
             Value::Array(arr) => Some(arr),
             _ => None,
@@ -78,9 +83,25 @@ impl Value<'_> {
     }
 
     /// Returns the value as a mutable array if it is an array
-    pub fn as_array_mut(&mut self) -> Option<&mut Vec<Self>> {
+    pub fn as_array_mut(&mut self) -> Option<&mut Vec<Value<'a>>> {
         match self {
             Value::Array(arr) => Some(arr),
+            _ => None,
+        }
+    }
+
+    /// Returns the value as a map if it is a map
+    pub fn as_map(&self) -> Option<&BTreeMap<String, Value<'a>>> {
+        match self {
+            Value::Map(map) => Some(map),
+            _ => None,
+        }
+    }
+
+    /// Returns the value as a mutable map if it is a map
+    pub fn as_map_mut(&mut self) -> Option<&mut BTreeMap<String, Value<'a>>> {
+        match self {
+            Value::Map(map) => Some(map),
             _ => None,
         }
     }
@@ -103,49 +124,43 @@ impl PartialOrd for Value<'_> {
             (Value::Bool(i), Value::Bool(j)) => i.partial_cmp(j),
             (Value::Ip(i), Value::Ip(j)) => i.partial_cmp(j),
             (Value::Array(i), Value::Array(j)) => i.partial_cmp(j),
+            (Value::Map(i), Value::Map(j)) => i.partial_cmp(j),
             _ => None,
         }
     }
 }
 
-impl TryFrom<serde_json::Value> for Value<'_> {
-    type Error = ();
-
-    fn try_from(value: serde_json::Value) -> StdResult<Self, Self::Error> {
+impl From<serde_json::Value> for Value<'_> {
+    fn from(value: serde_json::Value) -> Self {
         match value {
-            serde_json::Value::Null => Ok(Value::None),
-            serde_json::Value::String(s) => Ok(Value::String(Cow::Owned(s))),
-            serde_json::Value::Number(n) => Ok(Value::Number(n)),
-            serde_json::Value::Bool(b) => Ok(Value::Bool(b)),
+            serde_json::Value::Null => Value::None,
+            serde_json::Value::String(s) => Value::String(Cow::Owned(s)),
+            serde_json::Value::Number(n) => Value::Number(n),
+            serde_json::Value::Bool(b) => Value::Bool(b),
             serde_json::Value::Array(arr) => {
-                let arr = arr
-                    .into_iter()
-                    .map(|v| Value::try_from(v))
-                    .collect::<StdResult<Vec<_>, _>>()?;
-                Ok(Value::Array(arr))
+                let arr = arr.into_iter().map(|v| v.into()).collect();
+                Value::Array(arr)
             }
-            _ => Err(()),
+            serde_json::Value::Object(obj) => {
+                let map = obj.into_iter().map(|(k, v)| (k, v.into())).collect();
+                Value::Map(map)
+            }
         }
     }
 }
 
-impl<'a> TryFrom<&'a serde_json::Value> for Value<'a> {
-    type Error = ();
-
-    fn try_from(value: &'a serde_json::Value) -> StdResult<Self, Self::Error> {
+impl<'a> From<&'a serde_json::Value> for Value<'a> {
+    fn from(value: &'a serde_json::Value) -> Self {
         match value {
-            serde_json::Value::Null => Ok(Value::None),
-            serde_json::Value::String(s) => Ok(Value::String(Cow::Borrowed(s))),
-            serde_json::Value::Number(n) => Ok(Value::Number(n.clone())),
-            serde_json::Value::Bool(b) => Ok(Value::Bool(*b)),
-            serde_json::Value::Array(arr) => {
-                let arr = arr
-                    .iter()
-                    .map(|v| Value::try_from(v))
-                    .collect::<StdResult<Vec<_>, _>>()?;
-                Ok(Value::Array(arr))
+            serde_json::Value::Null => Value::None,
+            serde_json::Value::String(s) => Value::String(Cow::Borrowed(s)),
+            serde_json::Value::Number(n) => Value::Number(n.clone()),
+            serde_json::Value::Bool(b) => Value::Bool(*b),
+            serde_json::Value::Array(arr) => Value::Array(arr.iter().map(|v| v.into()).collect()),
+            serde_json::Value::Object(obj) => {
+                let map = obj.iter().map(|(k, v)| (k.clone(), v.into())).collect();
+                Value::Map(map)
             }
-            _ => Err(()),
         }
     }
 }

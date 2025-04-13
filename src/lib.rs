@@ -334,18 +334,18 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                 }))
             }
 
-            // InList
-            (AnyFetcherFn::Sync(fetcher_fn), Operator::InList(list)) => {
+            // InSet
+            (AnyFetcherFn::Sync(fetcher_fn), Operator::InSet(set)) => {
                 AnyEvalFn::Sync(Arc::new(move |ctx| {
-                    fetcher_fn(ctx, &fetcher_args).map(|val| list.contains(&val))
+                    fetcher_fn(ctx, &fetcher_args).map(|val| set.contains(&val))
                 }))
             }
-            (AnyFetcherFn::Async(fetcher_fn), Operator::InList(list)) => {
-                let list = Arc::new(list);
+            (AnyFetcherFn::Async(fetcher_fn), Operator::InSet(set)) => {
+                let set = Arc::new(set);
                 AnyEvalFn::Async(Arc::new(move |ctx| {
-                    let list = list.clone();
+                    let set = set.clone();
                     let value = fetcher_fn(ctx, fetcher_args.clone());
-                    Box::pin(async move { value.await.map(|val| list.contains(&val)) })
+                    Box::pin(async move { value.await.map(|val| set.contains(&val)) })
                 }))
             }
 

@@ -19,7 +19,7 @@ pub enum Operator<Ctx: ?Sized> {
     LessThanOrEqual(Value<'static>),
     GreaterThan(Value<'static>),
     GreaterThanOrEqual(Value<'static>),
-    InList(HashSet<Value<'static>>),
+    InSet(HashSet<Value<'static>>),
     Regex(regex::Regex),
     RegexSet(regex::RegexSet),
     IpSet(IpnetTrie<()>),
@@ -58,7 +58,7 @@ impl<Ctx: ?Sized> Matcher<Ctx> for StringMatcher {
             JsonValue::String(s) => Ok(Operator::Equal(Value::String(Cow::Owned(s.clone())))),
             JsonValue::Number(n) => Ok(Operator::Equal(Value::String(Cow::Owned(n.to_string())))),
             JsonValue::Array(seq) => {
-                let list = seq
+                let set = seq
                     .iter()
                     .map(|v| match v {
                         JsonValue::String(s) => Ok(Value::String(Cow::Owned(s.clone()))),
@@ -66,7 +66,7 @@ impl<Ctx: ?Sized> Matcher<Ctx> for StringMatcher {
                         _ => type_mismatch!("unexpected JSON {} in array", v.type_name()),
                     })
                     .collect::<Result<HashSet<_>>>()?;
-                Ok(Operator::InList(list))
+                Ok(Operator::InSet(set))
             }
             JsonValue::Object(map) => Self::parse_op(fetcher, map),
             _ => type_mismatch!("unexpected JSON {}", value.type_name()),
@@ -103,14 +103,14 @@ impl StringMatcher {
                 type_mismatch!(op, "unexpected JSON {}", value.type_name())
             }
             ("in", JsonValue::Array(seq)) => {
-                let list = seq
+                let set = seq
                     .iter()
                     .map(|v| match v {
                         JsonValue::String(s) => Ok(Value::from(s).into_static()),
                         _ => type_mismatch!(op, "unexpected JSON {} in array", v.type_name()),
                     })
                     .collect::<Result<HashSet<_>>>()?;
-                Ok(Operator::InList(list))
+                Ok(Operator::InSet(set))
             }
             ("in", _) => type_mismatch!(op, "unexpected JSON {}", value.type_name()),
             ("re", JsonValue::String(pattern)) => {
@@ -185,14 +185,14 @@ impl<Ctx: ?Sized> Matcher<Ctx> for NumberMatcher {
         match value {
             JsonValue::Number(n) => Ok(Operator::Equal(Value::Number(n.clone()))),
             JsonValue::Array(seq) => {
-                let list = seq
+                let set = seq
                     .iter()
                     .map(|v| match v {
                         JsonValue::Number(n) => Ok(Value::Number(n.clone())),
                         _ => type_mismatch!("unexpected JSON {} in array", v.type_name()),
                     })
                     .collect::<Result<HashSet<_>>>()?;
-                Ok(Operator::InList(list))
+                Ok(Operator::InSet(set))
             }
             JsonValue::Object(map) => Self::parse_op(fetcher, map),
             _ => type_mismatch!("unexpected JSON {}", value.type_name()),
@@ -227,14 +227,14 @@ impl NumberMatcher {
                 type_mismatch!(op, "unexpected JSON {}", value.type_name())
             }
             ("in", JsonValue::Array(seq)) => {
-                let list = seq
+                let set = seq
                     .iter()
                     .map(|v| match v {
                         JsonValue::Number(n) => Ok(Value::Number(n.clone())),
                         _ => type_mismatch!(op, "unexpected JSON {} in array", v.type_name()),
                     })
                     .collect::<Result<HashSet<_>>>()?;
-                Ok(Operator::InList(list))
+                Ok(Operator::InSet(set))
             }
             ("in", _) => type_mismatch!(op, "unexpected JSON {}", value.type_name()),
             _ => Err(Error::UnknownOperator(op.clone())),

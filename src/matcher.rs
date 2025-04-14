@@ -41,6 +41,30 @@ pub trait Matcher<Ctx: ?Sized>: Send + Sync {
     fn parse(&self, fetcher: &str, value: &JsonValue) -> Result<Operator<Ctx>>;
 }
 
+macro_rules! matcher_error {
+    ($mtype:expr, $fetcher:expr, $($arg:tt)*) => {
+        Err(Error::matcher($mtype, $fetcher, format!($($arg)*)))
+    };
+}
+
+macro_rules! operator_error {
+    ($op:expr, $fetcher:expr, $($arg:tt)*) => {
+        Err(Error::operator($op, $fetcher, format!($($arg)*)))
+    };
+}
+
+macro_rules! check_operator {
+    ($fetcher:expr, $map:expr) => {{
+        let len = $map.len();
+        if len != 1 {
+            #[rustfmt::skip]
+            let msg = format!("'{}' operator object must have exactly one key (got {len})", $fetcher);
+            return Err(Error::InvalidJson(msg));
+        }
+        $map.iter().next().unwrap()
+    }};
+}
+
 /// A matcher for string values.
 ///
 /// It supports custom operators.
@@ -264,31 +288,43 @@ impl<Ctx: ?Sized> Matcher<Ctx> for BoolMatcher {
 
 /// A matcher for IP subnets.
 ///
-/// Does not support custom operators.
+/// It supports custom operators.
 pub struct IpMatcher;
 
 impl<Ctx: ?Sized> Matcher<Ctx> for IpMatcher {
     fn parse(&self, fetcher: &str, value: &JsonValue) -> Result<Operator<Ctx>> {
-        macro_rules! type_mismatch {
-            ($($arg:tt)*) => {
-                Err(Error::matcher("Ip", fetcher, format!($($arg)*)))
-            };
+        match value {
+            JsonValue::String(_) => {
+                Self::make_ipnet(fetcher, &[value.clone()]).map(Operator::IpSet)
+            }
+            JsonValue::Array(addrs) => Self::make_ipnet(fetcher, &addrs).map(Operator::IpSet),
+            JsonValue::Object(map) => Self::parse_op(fetcher, map),
+            _ => matcher_error!("Ip", fetcher, "unexpected JSON {}", value.type_name()),
         }
+    }
+}
 
-        let addrs = match value {
-            JsonValue::String(s) => vec![s],
-            JsonValue::Array(seq) => seq
-                .iter()
-                .map(|v| match v {
-                    JsonValue::String(s) => Ok(s),
-                    _ => type_mismatch!("unexpected JSON {} in array", v.type_name()),
-                })
-                .collect::<Result<Vec<_>>>()?,
-            _ => return type_mismatch!("unexpected JSON {}", value.type_name()),
-        };
+impl IpMatcher {
+    fn parse_op<Ctx: ?Sized>(fetcher: &str, map: &Map<String, JsonValue>) -> Result<Operator<Ctx>> {
+        let (op, value) = check_operator!(fetcher, map);
+        match (op.as_str(), value) {
+            ("in", JsonValue::Array(addrs)) => {
+                Self::make_ipnet(fetcher, &addrs).map(Operator::IpSet)
+            }
+            ("in", _) => operator_error!(op, fetcher, "unexpected JSON {}", value.type_name()),
+            _ => Err(Error::UnknownOperator(op.clone())),
+        }
+    }
 
+    /// Creates an [`IpnetTrie`] from a list of IP addresses or CIDR ranges.
+    pub fn make_ipnet(fetcher: &str, addrs: &[JsonValue]) -> Result<IpnetTrie<()>> {
         let mut table = IpnetTrie::new();
         for addr in addrs {
+            let addr = match addr {
+                JsonValue::String(s) => s,
+                #[rustfmt::skip]
+                _ => matcher_error!("Ip", fetcher, "unexpected JSON {} in array", addr.type_name())?,
+            };
             let net = if addr.contains('/') {
                 IpNet::from_str(addr).map_err(|err| Error::matcher("Ip", fetcher, err))?
             } else {
@@ -298,6 +334,6 @@ impl<Ctx: ?Sized> Matcher<Ctx> for IpMatcher {
             };
             table.insert(net, ());
         }
-        Ok(Operator::IpSet(table))
+        Ok(table)
     }
 }

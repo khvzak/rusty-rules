@@ -2,7 +2,7 @@
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     /// Triggered when a fetcher specified in the JSON rule isn’t registered in the engine.
-    #[error("Unknown fetcher: {0}")]
+    #[error("Unknown fetcher '{0}'")]
     UnknownFetcher(String),
 
     /// Triggered when a fetcher specified in the JSON rule is invalid.
@@ -10,7 +10,7 @@ pub enum Error {
     InvalidFetcher { name: String, error: String },
 
     /// Triggered when an operator specified in the JSON rule isn’t registered in the engine.
-    #[error("Unknown operator: {0}")]
+    #[error("Unknown operator '{0}'")]
     UnknownOperator(String),
 
     /// Covers general JSON parsing issues, such as missing fields or incorrect types.
@@ -18,7 +18,7 @@ pub enum Error {
     InvalidJson(String),
 
     /// Occurs when a matcher is used with an incompatible json value type.
-    #[error("Error in {name} matcher for '{fetcher}': {error}")]
+    #[error("Error in '{name}' matcher for '{fetcher}': {error}")]
     Matcher {
         name: String,
         fetcher: String,

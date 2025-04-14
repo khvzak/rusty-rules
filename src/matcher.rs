@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::collections::HashSet;
+use std::fmt;
 use std::net::IpAddr;
 use std::str::FromStr;
 
@@ -25,6 +26,24 @@ pub enum Operator<Ctx: ?Sized> {
     IpSet(IpnetTrie<()>),
     Custom(Box<CheckFn<Ctx>>),
     CustomAsync(Box<AsyncCheckFn<Ctx>>),
+}
+
+impl<Ctx: ?Sized> fmt::Debug for Operator<Ctx> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Operator::Equal(v) => write!(f, "Equal({v:?})"),
+            Operator::LessThan(v) => write!(f, "LessThan({v:?})"),
+            Operator::LessThanOrEqual(v) => write!(f, "LessThanOrEqual({v:?})"),
+            Operator::GreaterThan(v) => write!(f, "GreaterThan({v:?})"),
+            Operator::GreaterThanOrEqual(v) => write!(f, "GreaterThanOrEqual({v:?})"),
+            Operator::InSet(set) => write!(f, "InSet({set:?})",),
+            Operator::Regex(regex) => write!(f, "Regex({regex:?})"),
+            Operator::RegexSet(regex_set) => write!(f, "RegexSet({regex_set:?})"),
+            Operator::IpSet(_) => f.write_str("IpSet"),
+            Operator::Custom(_) => f.write_str("Custom"),
+            Operator::CustomAsync(_) => f.write_str("CustomAsync"),
+        }
+    }
 }
 
 /// Trait for types matchers
@@ -335,5 +354,226 @@ impl IpMatcher {
             table.insert(net, ());
         }
         Ok(table)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::any::{Any, TypeId};
+
+    use serde_json::json;
+
+    use super::*;
+
+    /// Helper to test if parsing results in an error
+    #[track_caller]
+    fn assert_parse_error<M>(matcher: M, fetcher: &str, value: JsonValue, expected_msg: &str)
+    where
+        M: Matcher<()>,
+    {
+        let result = matcher.parse(fetcher, &value);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains(expected_msg),
+            "Expected error message to contain `{expected_msg}` but got `{err}`",
+        );
+    }
+
+    // Helper function to parse JSON value and extract operator
+    fn parse_op<T: Any>(matcher: impl Matcher<()>, value: JsonValue) -> (T, &'static str) {
+        let type_id = TypeId::of::<T>();
+        let op = (matcher.parse("test_field", &value)).expect("Failed to parse operator");
+        let (boxed, variant): (Box<dyn Any>, &'static str) = match op {
+            Operator::Equal(val) if type_id == val.type_id() => (Box::new(val), "Equal"),
+            Operator::LessThan(val) if type_id == val.type_id() => (Box::new(val), "LessThan"),
+            Operator::LessThanOrEqual(val) if type_id == val.type_id() => {
+                (Box::new(val), "LessThanOrEqual")
+            }
+            Operator::GreaterThan(val) if type_id == val.type_id() => {
+                (Box::new(val), "GreaterThan")
+            }
+            Operator::GreaterThanOrEqual(val) if type_id == val.type_id() => {
+                (Box::new(val), "GreaterThanOrEqual")
+            }
+            Operator::InSet(val) if type_id == val.type_id() => (Box::new(val), "InSet"),
+            Operator::Regex(val) if type_id == val.type_id() => (Box::new(val), "Regex"),
+            Operator::RegexSet(val) if type_id == val.type_id() => (Box::new(val), "RegexSet"),
+            Operator::IpSet(val) if type_id == TypeId::of::<IpnetTrie<()>>() => {
+                (Box::new(val), "IpSet")
+            }
+            op => panic!("Unexpected operator type or value type mismatch: {op:?}"),
+        };
+        // Downcast to the expected type
+        (*boxed.downcast::<T>().unwrap(), variant)
+    }
+
+    #[test]
+    fn test_string_matcher() {
+        #[track_caller]
+        fn assert_str_parse_error(value: JsonValue, expected_msg: &str) {
+            assert_parse_error(StringMatcher, "test_field", value, expected_msg);
+        }
+
+        // Test equality with a string literal
+        let (s, variant) = parse_op::<Value>(StringMatcher, json!("hello"));
+        assert_eq!(variant, "Equal");
+        assert_eq!(s, Value::String(Cow::Borrowed("hello")));
+
+        // Test equality with a number (should convert to string)
+        let (s, variant) = parse_op::<Value>(StringMatcher, json!(123));
+        assert_eq!(variant, "Equal");
+        assert_eq!(s, Value::String(Cow::Borrowed("123")));
+
+        // Test array of strings (creates InSet operator)
+        let (set, variant) = parse_op::<HashSet<Value>>(StringMatcher, json!(["hello", "world"]));
+        assert_eq!(variant, "InSet");
+        assert_eq!(set.len(), 2);
+        assert!(set.contains(&Value::String(Cow::Borrowed("hello"))));
+        assert!(set.contains(&Value::String(Cow::Borrowed("world"))));
+
+        // Test array with mixed types (strings and numbers)
+        let (set, variant) = parse_op::<HashSet<Value>>(StringMatcher, json!(["hello", 123]));
+        assert_eq!(variant, "InSet");
+        assert_eq!(set.len(), 2);
+        assert!(set.contains(&Value::String(Cow::Borrowed("hello"))));
+        assert!(set.contains(&Value::String(Cow::Borrowed("123"))));
+
+        // Test comparison operators
+        let (s, variant) = parse_op::<Value>(StringMatcher, json!({"<": "hello"}));
+        assert_eq!(variant, "LessThan");
+        assert_eq!(s, Value::String(Cow::Borrowed("hello")));
+
+        let (s, variant) = parse_op::<Value>(StringMatcher, json!({"<=": "hello"}));
+        assert_eq!(variant, "LessThanOrEqual");
+        assert_eq!(s, Value::String(Cow::Borrowed("hello")));
+
+        let (s, variant) = parse_op::<Value>(StringMatcher, json!({">": "hello"}));
+        assert_eq!(variant, "GreaterThan");
+        assert_eq!(s, Value::String(Cow::Borrowed("hello")));
+
+        let (s, variant) = parse_op::<Value>(StringMatcher, json!({">=": "hello"}));
+        assert_eq!(variant, "GreaterThanOrEqual");
+        assert_eq!(s, Value::String(Cow::Borrowed("hello")));
+
+        let (s, variant) = parse_op::<Value>(StringMatcher, json!({"==": "hello"}));
+        assert_eq!(variant, "Equal");
+        assert_eq!(s, Value::String(Cow::Borrowed("hello")));
+
+        // Test in operator
+        let (set, variant) =
+            parse_op::<HashSet<Value>>(StringMatcher, json!({"in": ["hello", "world"]}));
+        assert_eq!(variant, "InSet");
+        assert_eq!(set.len(), 2);
+        assert!(set.contains(&Value::String(Cow::Borrowed("hello"))));
+        assert!(set.contains(&Value::String(Cow::Borrowed("world"))));
+
+        // Test regex operator with single pattern
+        let (re, variant) = parse_op::<Regex>(StringMatcher, json!({"re": "^hello$"}));
+        assert_eq!(variant, "Regex");
+        assert!(re.is_match("hello"));
+
+        // Test regex operator with multiple patterns
+        let (re, variant) =
+            parse_op::<RegexSet>(StringMatcher, json!({"re": ["^hello$", "^world$"]}));
+        assert_eq!(variant, "RegexSet");
+        assert!(re.is_match("hello"));
+        assert!(!re.is_match("hello world"));
+
+        // Test error cases
+        assert_str_parse_error(
+            json!(true),
+            "Error in 'String' matcher for 'test_field': unexpected JSON boolean",
+        );
+        assert_str_parse_error(
+            json!({"in": true}),
+            "Error in 'in' operator for 'test_field': unexpected JSON boolean",
+        );
+        assert_str_parse_error(
+            json!({"<": true}),
+            "Error in '<' operator for 'test_field': unexpected JSON boolean",
+        );
+        assert_str_parse_error(
+            json!({"re": true}),
+            "Error in 're' operator for 'test_field': unexpected JSON boolean",
+        );
+        assert_str_parse_error(json!({"unknown": "value"}), "Unknown operator 'unknown'");
+    }
+
+    #[test]
+    fn test_ip_matcher() {
+        // IP Matcher specific test helpers
+        fn ip(s: &str) -> IpNet {
+            IpNet::from(IpAddr::from_str(s).unwrap())
+        }
+
+        #[track_caller]
+        fn assert_ip_parse_error(value: JsonValue, expected_msg: &str) {
+            assert_parse_error(IpMatcher, "ip_field", value, expected_msg);
+        }
+
+        #[track_caller]
+        fn assert_ip_matches(trie: &IpnetTrie<()>, addr: &str) {
+            let ip = ip(addr);
+            assert!(trie.longest_match(&ip).is_some(), "{addr} should match");
+        }
+
+        #[track_caller]
+        fn assert_ip_not_matches(trie: &IpnetTrie<()>, addr: &str) {
+            let ip = ip(addr);
+            assert!(trie.longest_match(&ip).is_none(), "{addr} should not match");
+        }
+
+        // Test with a single IP address string
+        let (trie, variant) = parse_op::<IpnetTrie<()>>(IpMatcher, json!("192.168.1.1"));
+        assert_eq!(variant, "IpSet");
+        assert_ip_matches(&trie, "192.168.1.1");
+        assert_ip_not_matches(&trie, "192.168.1.2");
+
+        // Test with a CIDR notation string
+        let (trie, variant) = parse_op::<IpnetTrie<()>>(IpMatcher, json!("192.168.1.0/24"));
+        assert_eq!(variant, "IpSet");
+        assert_ip_matches(&trie, "192.168.1.1");
+        assert_ip_matches(&trie, "192.168.1.254");
+        assert_ip_not_matches(&trie, "192.168.2.1");
+
+        // Test with an array of mixed IP addresses and CIDR notations
+        let (trie, variant) =
+            parse_op::<IpnetTrie<()>>(IpMatcher, json!(["192.168.1.1", "10.0.0.0/8"]));
+        assert_eq!(variant, "IpSet");
+        assert_ip_matches(&trie, "192.168.1.1");
+        assert_ip_matches(&trie, "10.1.2.3");
+        assert_ip_not_matches(&trie, "11.0.0.1");
+
+        // Test with IPv6 addresses
+        let (trie, variant) =
+            parse_op::<IpnetTrie<()>>(IpMatcher, json!(["2001:db8::1", "2001:db8::/32"]));
+        assert_eq!(variant, "IpSet");
+        assert_ip_matches(&trie, "2001:db8:1::1");
+
+        // Test with 'in' operator
+        let (trie, variant) =
+            parse_op::<IpnetTrie<()>>(IpMatcher, json!({ "in": ["192.168.1.1", "172.16.0.0/8"] }));
+        assert_eq!(variant, "IpSet");
+        assert_ip_matches(&trie, "172.16.5.6");
+        assert_ip_not_matches(&trie, "10.1.2.3");
+
+        // Test error cases
+        assert_ip_parse_error(
+            json!("invalid-ip"),
+            "Error in 'Ip' matcher for 'ip_field': invalid IP address syntax",
+        );
+        assert_ip_parse_error(
+            json!(123),
+            "Error in 'Ip' matcher for 'ip_field': unexpected JSON number",
+        );
+        assert_ip_parse_error(
+            json!({ "in": "not-an-array" }),
+            "Error in 'in' operator for 'ip_field': unexpected JSON string",
+        );
+        assert_ip_parse_error(
+            json!({ "not_in": ["192.168.1.1"] }),
+            "Unknown operator 'not_in'",
+        );
     }
 }

@@ -10,7 +10,7 @@ use ipnet_trie::IpnetTrie;
 use regex::{Regex, RegexSet};
 use serde_json::{Map, Value as JsonValue};
 
-use crate::{CheckFn, Error, JsonValueExt as _, Result, Value};
+use crate::{CheckFn, Error, JsonValueExt as _, MaybeSend, MaybeSync, Result, Value};
 
 use crate::AsyncCheckFn;
 
@@ -48,15 +48,7 @@ impl<Ctx: ?Sized> fmt::Debug for Operator<Ctx> {
 }
 
 /// Trait for types matchers
-#[cfg(not(feature = "send"))]
-pub trait Matcher<Ctx: ?Sized> {
-    /// Parses the JSON configuration and returns an [`Operator`].
-    fn parse(&self, fetcher: &str, value: &JsonValue) -> Result<Operator<Ctx>>;
-}
-
-/// Trait for types matchers
-#[cfg(feature = "send")]
-pub trait Matcher<Ctx: ?Sized>: Send + Sync {
+pub trait Matcher<Ctx: ?Sized>: MaybeSend + MaybeSync {
     /// Parses the JSON configuration and returns an [`Operator`].
     fn parse(&self, fetcher: &str, value: &JsonValue) -> Result<Operator<Ctx>>;
 }

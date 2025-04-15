@@ -455,6 +455,186 @@ mod tests {
     }
 
     #[test]
+    fn test_regex_matcher() {
+        #[track_caller]
+        fn assert_regex_parse_error(value: JsonValue, expected_msg: &str) {
+            assert_parse_error(RegexMatcher, "regex_field", value, expected_msg);
+        }
+
+        // Test with a single regex pattern
+        let (re, variant) = parse_op::<Regex>(RegexMatcher, json!("^hello$"));
+        assert_eq!(variant, "Regex");
+        assert!(re.is_match("hello"));
+        assert!(!re.is_match("hello world"));
+
+        // Test with multiple patterns as array
+        let (re_set, variant) = parse_op::<RegexSet>(RegexMatcher, json!(["^hello$", "^world$"]));
+        assert_eq!(variant, "RegexSet");
+        assert!(re_set.is_match("hello"));
+        assert!(re_set.is_match("world"));
+        assert!(!re_set.is_match("hello world"));
+
+        // Test with 'in' operator for RegexSet
+        let (re_set, variant) =
+            parse_op::<RegexSet>(RegexMatcher, json!({"in": ["^hello$", "^world$"]}));
+        assert_eq!(variant, "RegexSet");
+        assert!(re_set.is_match("hello"));
+        assert!(re_set.is_match("world"));
+        assert!(!re_set.is_match("hello world"));
+
+        // Test error cases
+        assert_regex_parse_error(
+            json!(123),
+            "Error in 'Regex' matcher for 'regex_field': unexpected JSON number",
+        );
+        assert_regex_parse_error(
+            json!(true),
+            "Error in 'Regex' matcher for 'regex_field': unexpected JSON boolean",
+        );
+        assert_regex_parse_error(
+            json!({"in": "not-an-array"}),
+            "Error in 'in' operator for 'regex_field': unexpected JSON string",
+        );
+        assert_regex_parse_error(
+            json!({"in": [123, "pattern"]}),
+            "Error in 'in' operator for 'regex_field': unexpected JSON number in patterns array",
+        );
+        assert_regex_parse_error(json!({"invalid": "pattern"}), "Unknown operator 'invalid'");
+        assert_regex_parse_error(
+            json!("(invalid"),
+            "Error in 'Regex' matcher for 'regex_field': regex parse error",
+        );
+    }
+
+    #[test]
+    fn test_number_matcher() {
+        #[track_caller]
+        fn assert_num_parse_error(value: JsonValue, expected_msg: &str) {
+            assert_parse_error(NumberMatcher, "num_field", value, expected_msg);
+        }
+
+        // Test equality with a number literal
+        let (n, variant) = parse_op::<Value>(NumberMatcher, json!(42));
+        assert_eq!(variant, "Equal");
+        assert_eq!(n, Value::Number(serde_json::Number::from(42)));
+
+        // Test with a decimal number
+        let (n, variant) = parse_op::<Value>(NumberMatcher, json!(3.14));
+        assert_eq!(variant, "Equal");
+        assert_eq!(
+            n,
+            Value::Number(serde_json::Number::from_f64(3.14).unwrap())
+        );
+
+        // Test array of numbers (creates InSet operator)
+        let (set, variant) = parse_op::<HashSet<Value>>(NumberMatcher, json!([1, 3]));
+        assert_eq!(variant, "InSet");
+        assert_eq!(set.len(), 2);
+        assert!(set.contains(&Value::Number(serde_json::Number::from(1))));
+        assert!(!set.contains(&Value::Number(serde_json::Number::from(2))));
+        assert!(set.contains(&Value::Number(serde_json::Number::from(3))));
+
+        // Test comparison operators
+        let (n, variant) = parse_op::<Value>(NumberMatcher, json!({"<": 100}));
+        assert_eq!(variant, "LessThan");
+        assert_eq!(n, Value::Number(serde_json::Number::from(100)));
+
+        let (n, variant) = parse_op::<Value>(NumberMatcher, json!({"<=": 100}));
+        assert_eq!(variant, "LessThanOrEqual");
+        assert_eq!(n, Value::Number(serde_json::Number::from(100)));
+
+        let (n, variant) = parse_op::<Value>(NumberMatcher, json!({">": 100}));
+        assert_eq!(variant, "GreaterThan");
+        assert_eq!(n, Value::Number(serde_json::Number::from(100)));
+
+        let (n, variant) = parse_op::<Value>(NumberMatcher, json!({">=": 100}));
+        assert_eq!(variant, "GreaterThanOrEqual");
+        assert_eq!(n, Value::Number(serde_json::Number::from(100)));
+
+        let (n, variant) = parse_op::<Value>(NumberMatcher, json!({"==": 100}));
+        assert_eq!(variant, "Equal");
+        assert_eq!(n, Value::Number(serde_json::Number::from(100)));
+
+        // Test in operator
+        let (set, variant) = parse_op::<HashSet<Value>>(NumberMatcher, json!({"in": [1, 3]}));
+        assert_eq!(variant, "InSet");
+        assert_eq!(set.len(), 2);
+        assert!(set.contains(&Value::Number(serde_json::Number::from(1))));
+        assert!(!set.contains(&Value::Number(serde_json::Number::from(2))));
+        assert!(set.contains(&Value::Number(serde_json::Number::from(3))));
+
+        // Test in operator with decimal numbers
+        let (set, variant) = parse_op::<HashSet<Value>>(NumberMatcher, json!({"in": [1.5, 3.5]}));
+        assert_eq!(variant, "InSet");
+        assert_eq!(set.len(), 2);
+        assert!(set.contains(&Value::Number(serde_json::Number::from_f64(1.5).unwrap())));
+        assert!(!set.contains(&Value::Number(serde_json::Number::from_f64(2.5).unwrap())));
+        assert!(set.contains(&Value::Number(serde_json::Number::from_f64(3.5).unwrap())));
+
+        // Test error cases
+        assert_num_parse_error(
+            json!("string"),
+            "Error in 'Number' matcher for 'num_field': unexpected JSON string",
+        );
+        assert_num_parse_error(
+            json!(true),
+            "Error in 'Number' matcher for 'num_field': unexpected JSON boolean",
+        );
+        assert_num_parse_error(
+            json!({"<": "string"}),
+            "Error in '<' operator for 'num_field': unexpected JSON string",
+        );
+        assert_num_parse_error(
+            json!({"in": true}),
+            "Error in 'in' operator for 'num_field': unexpected JSON boolean",
+        );
+        assert_num_parse_error(
+            json!({"in": [1, "string"]}),
+            "Error in 'in' operator for 'num_field': unexpected JSON string in number array",
+        );
+        assert_num_parse_error(json!({"unknown": 100}), "Unknown operator 'unknown'");
+    }
+
+    #[test]
+    fn test_bool_matcher() {
+        // Test with true value
+        let (b, variant) = parse_op::<Value>(BoolMatcher, json!(true));
+        assert_eq!(variant, "Equal");
+        assert_eq!(b, Value::Bool(true));
+
+        // Test with false value
+        let (b, variant) = parse_op::<Value>(BoolMatcher, json!(false));
+        assert_eq!(variant, "Equal");
+        assert_eq!(b, Value::Bool(false));
+
+        // Test error cases
+        assert_parse_error(
+            BoolMatcher,
+            "bool_field",
+            json!("string"),
+            "Error in 'Bool' matcher for 'bool_field': unexpected JSON string",
+        );
+        assert_parse_error(
+            BoolMatcher,
+            "bool_field",
+            json!(123),
+            "Error in 'Bool' matcher for 'bool_field': unexpected JSON number",
+        );
+        assert_parse_error(
+            BoolMatcher,
+            "bool_field",
+            json!([true]),
+            "Error in 'Bool' matcher for 'bool_field': unexpected JSON array",
+        );
+        assert_parse_error(
+            BoolMatcher,
+            "bool_field",
+            json!({"==": true}),
+            "Error in 'Bool' matcher for 'bool_field': unexpected JSON object",
+        );
+    }
+
+    #[test]
     fn test_ip_matcher() {
         // IP Matcher specific test helpers
         fn ip(s: &str) -> IpNet {

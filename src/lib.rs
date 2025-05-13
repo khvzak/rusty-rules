@@ -471,7 +471,7 @@ impl<Ctx: ?Sized> Rule<Ctx> {
         match self {
             Rule::Leaf(Condition(AnyEvalFn::Sync(eval_fn))) => eval_fn(context),
             Rule::Leaf(Condition(AnyEvalFn::Async(_))) => {
-                Err("async rules are not supported in sync context".into())
+                Err("async operations are not supported in sync context".into())
             }
             Rule::Any(subrules) => {
                 for rule in subrules {

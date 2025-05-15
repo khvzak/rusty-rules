@@ -253,6 +253,61 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
         }
     }
 
+    /// Validates a JSON rule against dynamically generated JSON Schema of this engine.
+    #[cfg(feature = "validation")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "validation")))]
+    pub fn validate_rule(&self, json_rule: &JsonValue) -> StdResult<(), String> {
+        // build dynamic JSON Schema based on registered fetchers
+        let schema = self.json_schema();
+        let validator = jsonschema::draft7::new(&schema)
+            .map_err(|e| format!("failed to compile JSON Schema: {e}"))?;
+        validator.validate(&json_rule).map_err(|e| e.to_string())
+    }
+
+    /// Builds a JSON Schema for rules, including dynamic properties.
+    pub fn json_schema(&self) -> JsonValue {
+        let mut pattern_props = serde_json::Map::new();
+
+        // Get custom operator names for schema support
+        let custom_ops: Vec<&str> = self.operators.keys().map(|k| k.as_str()).collect();
+
+        // For each fetcher, get its matcher's schema or use a default
+        for (name, fetcher) in &self.fetchers {
+            let pattern = format!(r"^{}(:?\(([^)]*)\))?$", regex::escape(name));
+            let schema = (fetcher.matcher.json_schema(&custom_ops))
+                .unwrap_or_else(|| JsonValue::Object(serde_json::Map::new()));
+
+            pattern_props.insert(pattern, schema);
+        }
+
+        serde_json::json!({
+            "$schema": "http://json-schema.org/draft-07/schema",
+            "$ref": "#/definitions/rule_object",
+            "definitions": {
+                "rule_object": {
+                    "type": "object",
+                    "properties": {
+                        "any": { "$ref": "#/definitions/rule" },
+                        "all": { "$ref": "#/definitions/rule" },
+                        "not": { "$ref": "#/definitions/rule" }
+                    },
+                    "patternProperties": pattern_props,
+                    "additionalProperties": false,
+                },
+                "rule_array": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/definitions/rule_object" },
+                },
+                "rule": {
+                    "if": { "type": "array" },
+                    "then": { "$ref": "#/definitions/rule_array" },
+                    "else": { "$ref": "#/definitions/rule_object" }
+                },
+            }
+        })
+    }
+
     fn compile_condition(
         fetcher_fn: AnyFetcherFn<Ctx>,
         fetcher_args: Arc<[String]>,

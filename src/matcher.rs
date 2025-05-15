@@ -51,6 +51,12 @@ impl<Ctx: ?Sized> fmt::Debug for Operator<Ctx> {
 pub trait Matcher<Ctx: ?Sized>: MaybeSend + MaybeSync {
     /// Parses the JSON configuration and returns an [`Operator`].
     fn parse(&self, fetcher: &str, value: &JsonValue) -> Result<Operator<Ctx>>;
+
+    /// Returns an optional JSON Schema that describes valid inputs for this matcher.
+    fn json_schema(&self, custom_ops: &[&str]) -> Option<JsonValue> {
+        let _ = custom_ops;
+        None
+    }
 }
 
 macro_rules! operator_error {
@@ -80,7 +86,6 @@ impl<Ctx: ?Sized> Matcher<Ctx> for StringMatcher {
     fn parse(&self, fetcher: &str, value: &JsonValue) -> Result<Operator<Ctx>> {
         match value {
             JsonValue::String(s) => Ok(Operator::Equal(Value::String(Cow::Owned(s.clone())))),
-            JsonValue::Number(n) => Ok(Operator::Equal(Value::String(Cow::Owned(n.to_string())))),
             JsonValue::Array(seq) => Self::make_hashset(seq)
                 .map(Operator::InSet)
                 .map_err(|err| Error::matcher("String", fetcher, err)),
@@ -90,6 +95,10 @@ impl<Ctx: ?Sized> Matcher<Ctx> for StringMatcher {
                 Err(Error::matcher("String", fetcher, msg))
             }
         }
+    }
+
+    fn json_schema(&self, custom_ops: &[&str]) -> Option<JsonValue> {
+        StringMatcher::json_schema(self, custom_ops)
     }
 }
 
@@ -130,10 +139,49 @@ impl StringMatcher {
         arr.iter()
             .map(|v| match v {
                 JsonValue::String(s) => Ok(Value::String(Cow::Owned(s.clone()))),
-                JsonValue::Number(n) => Ok(Value::String(Cow::Owned(n.to_string()))),
                 _ => Err(format!("unexpected JSON {} in string array", v.type_name())),
             })
             .collect::<StdResult<HashSet<_>, _>>()
+    }
+
+    /// Provides a JSON Schema for string matcher inputs.
+    fn json_schema(&self, custom_ops: &[&str]) -> Option<JsonValue> {
+        // Standard schemas
+        let string_schema = serde_json::json!({ "type": "string" });
+        let string_array_schema = serde_json::json!({"type": "array", "items": string_schema});
+
+        // Add operator schemas
+        let mut properties = serde_json::Map::new();
+        properties.insert("<".to_string(), string_schema.clone());
+        properties.insert("<=".to_string(), string_schema.clone());
+        properties.insert(">".to_string(), string_schema.clone());
+        properties.insert(">=".to_string(), string_schema.clone());
+        properties.insert("==".to_string(), string_schema.clone());
+        properties.insert("in".to_string(), string_array_schema.clone());
+        properties.insert(
+            "re".to_string(),
+            serde_json::json!({"oneOf": [string_schema, string_array_schema]}),
+        );
+
+        // Add custom operators
+        for op in custom_ops {
+            properties.insert(op.to_string(), serde_json::json!({}));
+        }
+
+        Some(serde_json::json!({
+            "oneOf": [
+                string_schema,
+                string_array_schema,
+                // Object with a single operator
+                {
+                    "type": "object",
+                    "properties": properties,
+                    "additionalProperties": false,
+                    "minProperties": 1,
+                    "maxProperties": 1
+                }
+            ]
+        }))
     }
 }
 
@@ -157,6 +205,10 @@ impl<Ctx: ?Sized> Matcher<Ctx> for RegexMatcher {
                 Err(Error::matcher("Regex", fetcher, msg))
             }
         }
+    }
+
+    fn json_schema(&self, custom_ops: &[&str]) -> Option<JsonValue> {
+        RegexMatcher::json_schema(self, custom_ops)
     }
 }
 
@@ -184,6 +236,37 @@ impl RegexMatcher {
             .collect::<StdResult<Vec<_>, String>>()?;
         RegexSet::new(&patterns).map_err(|err| err.to_string())
     }
+
+    /// Provides a JSON Schema for regex matcher inputs.
+    fn json_schema(&self, custom_ops: &[&str]) -> Option<JsonValue> {
+        // Standard schemas
+        let string_schema = serde_json::json!({ "type": "string" });
+        let string_array_schema = serde_json::json!({"type": "array", "items": string_schema});
+
+        // Add operator schemas
+        let mut properties = serde_json::Map::new();
+        properties.insert("in".to_string(), string_array_schema.clone());
+
+        // Add custom operators
+        for op in custom_ops {
+            properties.insert(op.to_string(), serde_json::json!({}));
+        }
+
+        Some(serde_json::json!({
+            "oneOf": [
+                string_schema,
+                string_array_schema,
+                // Object with a single operator
+                {
+                    "type": "object",
+                    "properties": properties,
+                    "additionalProperties": false,
+                    "minProperties": 1,
+                    "maxProperties": 1
+                }
+            ]
+        }))
+    }
 }
 
 /// A matcher for number values.
@@ -204,6 +287,10 @@ impl<Ctx: ?Sized> Matcher<Ctx> for NumberMatcher {
                 Err(Error::matcher("Number", fetcher, msg))
             }
         }
+    }
+
+    fn json_schema(&self, custom_ops: &[&str]) -> Option<JsonValue> {
+        NumberMatcher::json_schema(self, custom_ops)
     }
 }
 
@@ -238,6 +325,42 @@ impl NumberMatcher {
             })
             .collect::<StdResult<HashSet<_>, _>>()
     }
+
+    /// Provides a JSON Schema for number matcher inputs.
+    fn json_schema(&self, custom_ops: &[&str]) -> Option<JsonValue> {
+        // Standard schemas
+        let number_schema = serde_json::json!({ "type": "number" });
+        let number_array_schema = serde_json::json!({"type": "array", "items": number_schema});
+
+        // Add operator schemas
+        let mut properties = serde_json::Map::new();
+        properties.insert("<".to_string(), number_schema.clone());
+        properties.insert("<=".to_string(), number_schema.clone());
+        properties.insert(">".to_string(), number_schema.clone());
+        properties.insert(">=".to_string(), number_schema.clone());
+        properties.insert("==".to_string(), number_schema.clone());
+        properties.insert("in".to_string(), number_array_schema.clone());
+
+        // Add custom operators
+        for op in custom_ops {
+            properties.insert(op.to_string(), serde_json::json!({}));
+        }
+
+        Some(serde_json::json!({
+            "oneOf": [
+                number_schema,
+                number_array_schema,
+                // Object with a single operator
+                {
+                    "type": "object",
+                    "properties": properties,
+                    "additionalProperties": false,
+                    "minProperties": 1,
+                    "maxProperties": 1
+                }
+            ]
+        }))
+    }
 }
 
 /// A matcher for boolean values.
@@ -254,6 +377,18 @@ impl<Ctx: ?Sized> Matcher<Ctx> for BoolMatcher {
                 Err(Error::matcher("Bool", fetcher, msg))
             }
         }
+    }
+
+    fn json_schema(&self, custom_ops: &[&str]) -> Option<JsonValue> {
+        BoolMatcher::json_schema(self, custom_ops)
+    }
+}
+
+impl BoolMatcher {
+    /// Provides a JSON Schema for boolean matcher inputs.
+    fn json_schema(&self, _custom_ops: &[&str]) -> Option<JsonValue> {
+        // Boolean matcher only accepts boolean values
+        Some(serde_json::json!({"type": "boolean"}))
     }
 }
 
@@ -277,6 +412,10 @@ impl<Ctx: ?Sized> Matcher<Ctx> for IpMatcher {
                 Err(Error::matcher("Ip", fetcher, msg))
             }
         }
+    }
+
+    fn json_schema(&self, custom_ops: &[&str]) -> Option<JsonValue> {
+        IpMatcher::json_schema(self, custom_ops)
     }
 }
 
@@ -308,6 +447,43 @@ impl IpMatcher {
             table.insert(net, ());
         }
         Ok(table)
+    }
+
+    /// Provides a JSON Schema for IP matcher inputs
+    fn json_schema(&self, custom_ops: &[&str]) -> Option<JsonValue> {
+        // IP address pattern
+        let ipv4_pattern =
+            r"(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)(?:/\d{1,2})?";
+        let ipv6_pattern = r"(?:[0-9a-f]{1,4}:){1,7}[0-9a-f]{0,4}|::(?:[0-9a-f:]{1,})?|[0-9a-f]{1,4}::(?:[0-9a-f:]{1,})?(?:/\d{1,3})?";
+        let ip_pattern = format!(r"^(?:{ipv4_pattern}|(?i:{ipv6_pattern}))");
+
+        // Standard schemas
+        let ip_schema = serde_json::json!({"type": "string", "pattern": ip_pattern});
+        let ip_array_schema = serde_json::json!({"type": "array", "items": ip_schema});
+
+        // Add operator schemas
+        let mut properties = serde_json::Map::new();
+        properties.insert("in".to_string(), ip_array_schema.clone());
+
+        // Add custom operators
+        for op in custom_ops {
+            properties.insert(op.to_string(), serde_json::json!({}));
+        }
+
+        Some(serde_json::json!({
+            "oneOf": [
+                ip_schema,
+                ip_array_schema,
+                // Object with a single operator
+                {
+                    "type": "object",
+                    "properties": properties,
+                    "additionalProperties": false,
+                    "minProperties": 1,
+                    "maxProperties": 1
+                }
+            ]
+        }))
     }
 }
 

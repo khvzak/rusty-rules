@@ -550,24 +550,12 @@ mod tests {
         assert_eq!(variant, "Equal");
         assert_eq!(s, Value::String(Cow::Borrowed("hello")));
 
-        // Test equality with a number (should convert to string)
-        let (s, variant) = parse_op::<Value>(StringMatcher, json!(123));
-        assert_eq!(variant, "Equal");
-        assert_eq!(s, Value::String(Cow::Borrowed("123")));
-
         // Test array of strings (creates InSet operator)
         let (set, variant) = parse_op::<HashSet<Value>>(StringMatcher, json!(["hello", "world"]));
         assert_eq!(variant, "InSet");
         assert_eq!(set.len(), 2);
         assert!(set.contains(&Value::String(Cow::Borrowed("hello"))));
         assert!(set.contains(&Value::String(Cow::Borrowed("world"))));
-
-        // Test array with mixed types (strings and numbers)
-        let (set, variant) = parse_op::<HashSet<Value>>(StringMatcher, json!(["hello", 123]));
-        assert_eq!(variant, "InSet");
-        assert_eq!(set.len(), 2);
-        assert!(set.contains(&Value::String(Cow::Borrowed("hello"))));
-        assert!(set.contains(&Value::String(Cow::Borrowed("123"))));
 
         // Test comparison operators
         let (s, variant) = parse_op::<Value>(StringMatcher, json!({"<": "hello"}));

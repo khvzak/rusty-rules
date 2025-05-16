@@ -10,8 +10,8 @@ use ipnet_trie::IpnetTrie;
 use regex::{Regex, RegexSet};
 use serde_json::{Map, Value as JsonValue};
 
-use crate::types::{BoxFuture, DynError};
-use crate::{AsyncCheckFn, CheckFn, Error, JsonValueExt as _, MaybeSend, MaybeSync, Result, Value};
+use crate::types::{AsyncCheckFn, BoxFuture, CheckFn, DynError, MaybeSend, MaybeSync};
+use crate::{Error, JsonValueExt as _, Result, Value};
 
 /// Represents an operator that used to check if a fetched value satisfies the condition.
 pub enum Operator<Ctx: ?Sized> {
@@ -72,10 +72,10 @@ pub trait Matcher<Ctx: ?Sized>: MaybeSend + MaybeSync {
     /// Parses the JSON configuration and returns an [`Operator`].
     fn parse(&self, fetcher: &str, value: &JsonValue) -> Result<Operator<Ctx>>;
 
-    /// Returns an optional JSON Schema that describes valid inputs for this matcher.
-    fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> Option<JsonValue> {
+    /// Returns a JSON Schema that describes valid inputs for this matcher.
+    fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> JsonValue {
         let _ = custom_ops;
-        None
+        serde_json::json!({})
     }
 }
 
@@ -91,7 +91,7 @@ macro_rules! check_operator {
         if len != 1 {
             #[rustfmt::skip]
             let msg = format!("'{}' operator object must have exactly one key (got {len})", $fetcher);
-            return Err(Error::InvalidJson(msg));
+            return Err(Error::json(msg));
         }
         $map.iter().next().unwrap()
     }};
@@ -117,7 +117,7 @@ impl<Ctx: ?Sized> Matcher<Ctx> for StringMatcher {
         }
     }
 
-    fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> Option<JsonValue> {
+    fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> JsonValue {
         StringMatcher::json_schema(self, custom_ops)
     }
 }
@@ -165,7 +165,7 @@ impl StringMatcher {
     }
 
     /// Provides a JSON Schema for string matcher inputs.
-    fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> Option<JsonValue> {
+    fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> JsonValue {
         // Standard schemas
         let string_schema = serde_json::json!({ "type": "string" });
         let string_array_schema = serde_json::json!({"type": "array", "items": string_schema});
@@ -188,7 +188,7 @@ impl StringMatcher {
             properties.insert(op.to_string(), schema.clone());
         }
 
-        Some(serde_json::json!({
+        serde_json::json!({
             "oneOf": [
                 string_schema,
                 string_array_schema,
@@ -201,7 +201,7 @@ impl StringMatcher {
                     "maxProperties": 1
                 }
             ]
-        }))
+        })
     }
 }
 
@@ -227,7 +227,7 @@ impl<Ctx: ?Sized> Matcher<Ctx> for RegexMatcher {
         }
     }
 
-    fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> Option<JsonValue> {
+    fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> JsonValue {
         RegexMatcher::json_schema(self, custom_ops)
     }
 }
@@ -258,7 +258,7 @@ impl RegexMatcher {
     }
 
     /// Provides a JSON Schema for regex matcher inputs.
-    fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> Option<JsonValue> {
+    fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> JsonValue {
         // Standard schemas
         let string_schema = serde_json::json!({ "type": "string" });
         let string_array_schema = serde_json::json!({"type": "array", "items": string_schema});
@@ -272,7 +272,7 @@ impl RegexMatcher {
             properties.insert(op.to_string(), schema.clone());
         }
 
-        Some(serde_json::json!({
+        serde_json::json!({
             "oneOf": [
                 string_schema,
                 string_array_schema,
@@ -285,7 +285,7 @@ impl RegexMatcher {
                     "maxProperties": 1
                 }
             ]
-        }))
+        })
     }
 }
 
@@ -309,7 +309,7 @@ impl<Ctx: ?Sized> Matcher<Ctx> for NumberMatcher {
         }
     }
 
-    fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> Option<JsonValue> {
+    fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> JsonValue {
         NumberMatcher::json_schema(self, custom_ops)
     }
 }
@@ -347,7 +347,7 @@ impl NumberMatcher {
     }
 
     /// Provides a JSON Schema for number matcher inputs.
-    fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> Option<JsonValue> {
+    fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> JsonValue {
         // Standard schemas
         let number_schema = serde_json::json!({ "type": "number" });
         let number_array_schema = serde_json::json!({"type": "array", "items": number_schema});
@@ -366,7 +366,7 @@ impl NumberMatcher {
             properties.insert(op.to_string(), schema.clone());
         }
 
-        Some(serde_json::json!({
+        serde_json::json!({
             "oneOf": [
                 number_schema,
                 number_array_schema,
@@ -379,7 +379,7 @@ impl NumberMatcher {
                     "maxProperties": 1
                 }
             ]
-        }))
+        })
     }
 }
 
@@ -399,16 +399,16 @@ impl<Ctx: ?Sized> Matcher<Ctx> for BoolMatcher {
         }
     }
 
-    fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> Option<JsonValue> {
+    fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> JsonValue {
         BoolMatcher::json_schema(self, custom_ops)
     }
 }
 
 impl BoolMatcher {
     /// Provides a JSON Schema for boolean matcher inputs.
-    fn json_schema(&self, _custom_ops: &[(&str, JsonValue)]) -> Option<JsonValue> {
+    fn json_schema(&self, _custom_ops: &[(&str, JsonValue)]) -> JsonValue {
         // Boolean matcher only accepts boolean values
-        Some(serde_json::json!({"type": "boolean"}))
+        serde_json::json!({"type": "boolean"})
     }
 }
 
@@ -434,7 +434,7 @@ impl<Ctx: ?Sized> Matcher<Ctx> for IpMatcher {
         }
     }
 
-    fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> Option<JsonValue> {
+    fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> JsonValue {
         IpMatcher::json_schema(self, custom_ops)
     }
 }
@@ -470,7 +470,7 @@ impl IpMatcher {
     }
 
     /// Provides a JSON Schema for IP matcher inputs
-    fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> Option<JsonValue> {
+    fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> JsonValue {
         // IP address pattern
         let ipv4_pattern =
             r"(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)(?:/\d{1,2})?";
@@ -490,7 +490,7 @@ impl IpMatcher {
             properties.insert(op.to_string(), schema.clone());
         }
 
-        Some(serde_json::json!({
+        serde_json::json!({
             "oneOf": [
                 ip_schema,
                 ip_array_schema,
@@ -503,7 +503,7 @@ impl IpMatcher {
                     "maxProperties": 1
                 }
             ]
-        }))
+        })
     }
 }
 

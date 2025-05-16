@@ -1,21 +1,13 @@
 /// Represents possible errors that can occur during rules parsing.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    /// Triggered when a fetcher specified in the JSON rule isn’t registered in the engine.
-    #[error("Unknown fetcher '{0}'")]
-    UnknownFetcher(String),
-
     /// Triggered when a fetcher specified in the JSON rule is invalid.
-    #[error("Invalid fetcher '{name}': {error}")]
-    InvalidFetcher { name: String, error: String },
-
-    /// Triggered when an operator specified in the JSON rule isn’t registered in the engine.
-    #[error("Unknown operator '{0}'")]
-    UnknownOperator(String),
+    #[error("Error in fetcher '{name}': {error}")]
+    Fetcher { name: String, error: String },
 
     /// Covers general JSON parsing issues, such as missing fields or incorrect types.
     #[error("Invalid JSON: {0}")]
-    InvalidJson(String),
+    Json(String),
 
     /// Occurs when a matcher is used with an incompatible json value type.
     #[error("Error in '{name}' matcher for '{fetcher}': {error}")]
@@ -24,6 +16,10 @@ pub enum Error {
         fetcher: String,
         error: String,
     },
+
+    /// Triggered when an operator specified in the JSON rule isn’t registered in the engine.
+    #[error("Unknown operator '{0}'")]
+    UnknownOperator(String),
 
     /// Triggered when an operator is used with an incompatible json value type.
     #[error("Error in '{name}' operator for '{fetcher}': {error}")]
@@ -35,11 +31,15 @@ pub enum Error {
 }
 
 impl Error {
-    pub(crate) fn invalid_fetcher(name: &str, error: &str) -> Self {
-        Error::InvalidFetcher {
+    pub(crate) fn fetcher(name: &str, error: impl ToString) -> Self {
+        Error::Fetcher {
             name: name.to_string(),
             error: error.to_string(),
         }
+    }
+
+    pub(crate) fn json(error: impl ToString) -> Self {
+        Error::Json(error.to_string())
     }
 
     pub(crate) fn matcher(name: &str, fetcher: &str, error: impl ToString) -> Self {

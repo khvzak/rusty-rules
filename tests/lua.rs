@@ -35,7 +35,7 @@ fn test_lua_operator() {
 
     // Run the tests
     let rule = engine
-        .parse_value(&json!({
+        .parse_rule(&json!({
             "sample": {
                 "eval": "function(ctx, value) return ctx == '1' and string.find(value, 'sample') ~= nil end"
             },

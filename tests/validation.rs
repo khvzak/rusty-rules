@@ -22,7 +22,7 @@ fn test_validation() {
     engine.register_fetcher("pattern", RegexMatcher, |_, _| Ok("abc".into()));
 
     // Register custom operator
-    engine.register_operator("custom_op", |value| {
+    engine.register_operator("custom_op", |value: serde_json::Value| {
         let value = value.as_bool().unwrap_or(false);
         Ok(rusty_rules::Operator::Custom(Box::new(move |_, _| {
             Ok(value)

@@ -171,7 +171,7 @@ fn benchmark_evaluation(c: &mut Criterion) {
         let engine = setup_rules_engine();
         let vrl_value = create_context();
         let context = vrl_value.as_object().unwrap();
-        let rule = engine.parse_value(&create_rule()).unwrap();
+        let rule = engine.parse_rule(&create_rule()).unwrap();
 
         b.iter(|| {
             let result = black_box(rule.evaluate(context).unwrap());

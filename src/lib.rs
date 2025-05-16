@@ -14,7 +14,7 @@ pub use matcher::{
 pub use types::{AsyncCheckFn, AsyncFetcherFn, CheckFn, FetcherFn, ToOperator};
 pub use value::Value;
 
-use crate::types::{AsyncEvalFn, DynError, EvalFn, MaybeSend, MaybeSync};
+use crate::types::{AsyncEvalFn, DynError, EvalFn, MaybeSync};
 
 pub(crate) type Result<T> = StdResult<T, error::Error>;
 
@@ -195,19 +195,19 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
     /// Registers a custom operator
     pub fn register_operator<O>(&mut self, name: &str, op: O)
     where
-        O: ToOperator<Ctx> + MaybeSend + MaybeSync + 'static,
+        O: ToOperator<Ctx> + 'static,
     {
         self.operators.insert(name.to_string(), Arc::new(op));
     }
 
-    /// Parses a JSON value into a [`Rule`] using the registered fetchers and operators
-    pub fn parse_value(&self, json: &JsonValue) -> Result<Rule<Ctx>> {
-        self.parse_rules(json).map(Rule::all)
+    /// Parses a JSON value into a [`Rule::All`] using the registered fetchers and operators
+    pub fn parse_rule(&self, value: &JsonValue) -> Result<Rule<Ctx>> {
+        self.parse_rules(value).map(Rule::all)
     }
 
     /// Parses a JSON value into a `Vec<Rule>`
-    fn parse_rules(&self, json: &JsonValue) -> Result<Vec<Rule<Ctx>>> {
-        match json {
+    fn parse_rules(&self, value: &JsonValue) -> Result<Vec<Rule<Ctx>>> {
+        match value {
             JsonValue::Object(map) => {
                 let mut rules = Vec::with_capacity(map.len());
                 for (key, value) in map {
@@ -217,15 +217,16 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                         "not" => rules.push(Rule::not(self.parse_rules(value)?)),
                         _ => {
                             let FetcherKey { name, args } = Self::parse_fetcher_key(key)?;
-                            let fetcher = (self.fetchers.get(&name))
-                                .ok_or_else(|| Error::UnknownFetcher(name.clone()))?;
+                            let fetcher = (self.fetchers.get(&name)).ok_or_else(|| {
+                                Error::fetcher(&name, "fetcher is not registered")
+                            })?;
 
                             let mut operator = fetcher.matcher.parse(&name, value);
                             // Try custom operator
                             if let Err(Error::UnknownOperator(ref op)) = operator {
                                 if let Some(op_builder) = self.operators.get(op) {
                                     operator = op_builder
-                                        .to_operator(value[op].clone())
+                                        .to_operator(&value[op])
                                         .map_err(|err| Error::operator(op, &name, err));
                                 }
                             }
@@ -245,21 +246,19 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                         Ok(rules)
                     })
             }
-            _ => Err(Error::InvalidJson(
-                "Rule must be a JSON object or array".to_string(),
-            )),
+            _ => Err(Error::json("rule must be a JSON object or array")),
         }
     }
 
     /// Validates a JSON rule against dynamically generated JSON Schema of this engine.
     #[cfg(feature = "validation")]
     #[cfg_attr(docsrs, doc(cfg(feature = "validation")))]
-    pub fn validate_rule(&self, json_rule: &JsonValue) -> StdResult<(), String> {
+    pub fn validate_rule(&self, value: &JsonValue) -> StdResult<(), String> {
         // build dynamic JSON Schema based on registered fetchers
         let schema = self.json_schema();
         let validator = jsonschema::draft7::new(&schema)
             .map_err(|e| format!("failed to compile JSON Schema: {e}"))?;
-        validator.validate(&json_rule).map_err(|e| e.to_string())
+        validator.validate(value).map_err(|e| e.to_string())
     }
 
     /// Builds a JSON Schema for rules, including dynamic properties.
@@ -268,19 +267,13 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
 
         // Get custom operator schemas
         let custom_ops: Vec<(&str, JsonValue)> = (self.operators.iter())
-            .map(|(k, v)| {
-                let schema =
-                    (v.json_schema()).unwrap_or_else(|| JsonValue::Object(serde_json::Map::new()));
-                (k.as_str(), schema)
-            })
+            .map(|(k, v)| (k.as_str(), v.json_schema()))
             .collect();
 
         // For each fetcher, get its matcher's schema or use a default
         for (name, fetcher) in &self.fetchers {
             let pattern = format!(r"^{}(:?\(([^)]*)\))?$", regex::escape(name));
-            let schema = (fetcher.matcher.json_schema(&custom_ops))
-                .unwrap_or_else(|| JsonValue::Object(serde_json::Map::new()));
-
+            let schema = fetcher.matcher.json_schema(&custom_ops);
             pattern_props.insert(pattern, schema);
         }
 
@@ -507,7 +500,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
     fn parse_fetcher_key(key: &str) -> Result<FetcherKey> {
         if let Some((name, args_str)) = key.split_once('(') {
             if !args_str.ends_with(')') {
-                return Err(Error::invalid_fetcher(name, "Missing closing parenthesis"));
+                return Err(Error::fetcher(name, "missing closing parenthesis"));
             }
             let args_str = &args_str[..args_str.len() - 1];
             let args = args_str.split(',').map(|s| s.trim().to_string()).collect();

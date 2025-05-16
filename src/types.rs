@@ -75,10 +75,10 @@ pub type AsyncFetcherFn<Ctx> =
     for<'a> fn(&'a Ctx, Arc<[String]>) -> BoxFuture<'a, Result<Value<'a>, DynError>>;
 
 pub trait ToOperator<Ctx: ?Sized>: MaybeSend + MaybeSync {
-    fn to_operator(&self, value: JsonValue) -> Result<Operator<Ctx>, DynError>;
+    fn to_operator(&self, value: &JsonValue) -> Result<Operator<Ctx>, DynError>;
 
-    fn json_schema(&self) -> Option<JsonValue> {
-        None
+    fn json_schema(&self) -> JsonValue {
+        serde_json::json!({})
     }
 }
 
@@ -86,7 +86,7 @@ impl<Ctx: ?Sized, F> ToOperator<Ctx> for F
 where
     F: Fn(JsonValue) -> Result<Operator<Ctx>, DynError> + MaybeSend + MaybeSync + 'static,
 {
-    fn to_operator(&self, value: JsonValue) -> Result<Operator<Ctx>, DynError> {
-        self(value)
+    fn to_operator(&self, value: &JsonValue) -> Result<Operator<Ctx>, DynError> {
+        self(value.clone())
     }
 }

@@ -107,10 +107,10 @@ fn setup_async_engine() -> Engine<TestContext> {
     // Register custom operator that works with async
     engine.register_operator("starts_with", |json| {
         let prefix = match json {
-            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::String(s) => s,
             _ => return Err("`starts_with` requires a string prefix".into()),
         };
-        Ok(Operator::CustomAsync(Box::new(move |_, value| {
+        Ok(Operator::new_async(move |_, value| {
             let prefix = prefix.clone();
             Box::pin(async move {
                 sleep(Duration::from_millis(10)).await;
@@ -118,7 +118,7 @@ fn setup_async_engine() -> Engine<TestContext> {
                     .map(|s| s.starts_with(&prefix))
                     .unwrap_or_default())
             })
-        })))
+        }))
     });
 
     engine

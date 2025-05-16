@@ -74,20 +74,21 @@ fn setup_engine() -> Engine<TestContext> {
         Ok(Value::from(ctx.status as i64))
     });
 
-    engine.register_operator("starts_with", |json| {
-        let prefix = match json {
-            serde_json::Value::String(s) => s.clone(),
+    engine.register_operator("starts_with", |value| {
+        let prefix = match value {
+            serde_json::Value::String(s) => s,
             _ => return Err("`starts_with` requires a string prefix".into()),
         };
-        Ok(Operator::Custom(Box::new(move |_, value| {
+
+        Ok(Operator::new(move |_, value| {
             Ok((value.as_str())
                 .map(|s| s.starts_with(&prefix))
                 .unwrap_or_default())
-        })))
+        }))
     });
 
-    engine.register_operator("between", |json| {
-        let range = match json {
+    engine.register_operator("between", |value| {
+        let range = match value {
             serde_json::Value::Array(arr) => {
                 if arr.len() != 2 {
                     return Err("between requires an array of two numbers".into());
@@ -98,11 +99,12 @@ fn setup_engine() -> Engine<TestContext> {
             }
             _ => return Err("between requires an array of two numbers".into()),
         };
-        Ok(Operator::Custom(Box::new(move |_, value| {
+
+        Ok(Operator::new(move |_, value| {
             Ok((value.as_i64())
                 .map(|n| n >= range.0 && n <= range.1)
                 .unwrap_or_default())
-        })))
+        }))
     });
 
     engine

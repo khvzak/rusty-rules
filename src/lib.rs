@@ -11,10 +11,10 @@ pub use error::Error;
 pub use matcher::{
     BoolMatcher, IpMatcher, Matcher, NumberMatcher, Operator, RegexMatcher, StringMatcher,
 };
-pub use types::{AsyncCheckFn, AsyncFetcherFn, CheckFn, FetcherFn};
+pub use types::{AsyncCheckFn, AsyncFetcherFn, CheckFn, FetcherFn, ToOperator};
 pub use value::Value;
 
-use crate::types::{AsyncEvalFn, DynError, EvalFn, MaybeSend, MaybeSync, OperatorBuilder};
+use crate::types::{AsyncEvalFn, DynError, EvalFn, MaybeSend, MaybeSync};
 
 pub(crate) type Result<T> = StdResult<T, error::Error>;
 
@@ -146,7 +146,7 @@ impl<Ctx: ?Sized> Clone for Fetcher<Ctx> {
 /// Rules engine for registering fetchers/operators and parsing rules
 pub struct Engine<Ctx: MaybeSync + ?Sized + 'static> {
     fetchers: HashMap<String, Fetcher<Ctx>>,
-    operators: HashMap<String, OperatorBuilder<Ctx>>,
+    operators: HashMap<String, Arc<dyn ToOperator<Ctx>>>,
 }
 
 impl<Ctx: MaybeSync + ?Sized> Default for Engine<Ctx> {
@@ -196,11 +196,11 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
     }
 
     /// Registers a custom operator
-    pub fn register_operator<F>(&mut self, op: &str, func: F)
+    pub fn register_operator<O>(&mut self, name: &str, op: O)
     where
-        F: Fn(&JsonValue) -> StdResult<Operator<Ctx>, DynError> + MaybeSend + MaybeSync + 'static,
+        O: ToOperator<Ctx> + MaybeSend + MaybeSync + 'static,
     {
-        self.operators.insert(op.to_string(), Arc::new(func));
+        self.operators.insert(name.to_string(), Arc::new(op));
     }
 
     /// Parses a JSON value into a [`Rule`] using the registered fetchers and operators
@@ -227,7 +227,8 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                             // Try custom operator
                             if let Err(Error::UnknownOperator(ref op)) = operator {
                                 if let Some(op_builder) = self.operators.get(op) {
-                                    operator = op_builder(&value[op])
+                                    operator = op_builder
+                                        .to_operator(value[op].clone())
                                         .map_err(|err| Error::operator(op, &name, err));
                                 }
                             }
@@ -268,8 +269,14 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
     pub fn json_schema(&self) -> JsonValue {
         let mut pattern_props = serde_json::Map::new();
 
-        // Get custom operator names for schema support
-        let custom_ops: Vec<&str> = self.operators.keys().map(|k| k.as_str()).collect();
+        // Get custom operator schemas
+        let custom_ops: Vec<(&str, JsonValue)> = (self.operators.iter())
+            .map(|(k, v)| {
+                let schema =
+                    (v.json_schema()).unwrap_or_else(|| JsonValue::Object(serde_json::Map::new()));
+                (k.as_str(), schema)
+            })
+            .collect();
 
         // For each fetcher, get its matcher's schema or use a default
         for (name, fetcher) in &self.fetchers {

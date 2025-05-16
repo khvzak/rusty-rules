@@ -18,7 +18,7 @@ fn test_lua_operator() {
     let lua2 = lua.clone();
     engine.register_operator("eval", move |value| {
         let script = match value {
-            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::String(s) => s,
             _ => return Err("`lua` requires a string script".into()),
         };
         let func = lua2
@@ -26,11 +26,11 @@ fn test_lua_operator() {
             .eval::<LuaFunction>()
             .map_err(|err| err.to_string())?;
 
-        Ok(Operator::Custom(Box::new(move |ctx, value| match value {
+        Ok(Operator::new(move |ctx, value| match value {
             Value::String(s) => Ok(func.call((ctx, s))?),
             Value::Number(n) => Ok(func.call((ctx, n.is_i64()))?),
             _ => Ok(false),
-        })))
+        }))
     });
 
     // Run the tests

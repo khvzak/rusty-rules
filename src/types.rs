@@ -1,8 +1,10 @@
 use std::sync::Arc;
 
+use serde_json::Value as JsonValue;
+
 pub use inner::*;
 
-use crate::Value;
+use crate::{Operator, Value};
 
 #[cfg(not(feature = "send"))]
 mod inner {
@@ -10,10 +12,6 @@ mod inner {
     use std::future::Future;
     use std::pin::Pin;
     use std::sync::Arc;
-
-    use serde_json::Value as JsonValue;
-
-    use crate::{Operator, Value};
 
     pub trait MaybeSend {}
     impl<T: ?Sized> MaybeSend for T {}
@@ -25,16 +23,12 @@ mod inner {
 
     pub(crate) type DynError = Box<dyn StdError>;
 
-    /// Callback type for operators
-    pub(crate) type OperatorBuilder<Ctx> =
-        Arc<dyn Fn(&JsonValue) -> Result<Operator<Ctx>, DynError>>;
-
     /// Callback type for operator check function
-    pub type CheckFn<Ctx> = dyn Fn(&Ctx, Value) -> Result<bool, DynError>;
+    pub type CheckFn<Ctx> = dyn Fn(&Ctx, crate::Value) -> Result<bool, DynError>;
 
     /// Callback type for async operator check function
     pub type AsyncCheckFn<Ctx> =
-        dyn for<'a> Fn(&'a Ctx, Value<'a>) -> BoxFuture<'a, Result<bool, DynError>>;
+        dyn for<'a> Fn(&'a Ctx, crate::Value<'a>) -> BoxFuture<'a, Result<bool, DynError>>;
 
     pub(crate) type EvalFn<Ctx> = Arc<dyn Fn(&Ctx) -> Result<bool, DynError>>;
 
@@ -49,10 +43,6 @@ mod inner {
     use std::pin::Pin;
     use std::sync::Arc;
 
-    use serde_json::Value as JsonValue;
-
-    use crate::{Operator, Value};
-
     pub trait MaybeSend: Send {}
     impl<T: Send + ?Sized> MaybeSend for T {}
 
@@ -63,15 +53,13 @@ mod inner {
 
     pub(crate) type DynError = Box<dyn StdError + Send + Sync>;
 
-    pub(crate) type OperatorBuilder<Ctx> =
-        Arc<dyn Fn(&JsonValue) -> Result<Operator<Ctx>, DynError> + Send + Sync>;
-
     /// Callback type for operator check function
-    pub type CheckFn<Ctx> = dyn Fn(&Ctx, Value) -> Result<bool, DynError> + Send + Sync;
+    pub type CheckFn<Ctx> = dyn Fn(&Ctx, crate::Value) -> Result<bool, DynError> + Send + Sync;
 
     /// Callback type for async operator check function
-    pub type AsyncCheckFn<Ctx> =
-        dyn for<'a> Fn(&'a Ctx, Value<'a>) -> BoxFuture<'a, Result<bool, DynError>> + Send + Sync;
+    pub type AsyncCheckFn<Ctx> = dyn for<'a> Fn(&'a Ctx, crate::Value<'a>) -> BoxFuture<'a, Result<bool, DynError>>
+        + Send
+        + Sync;
 
     pub(crate) type EvalFn<Ctx> = Arc<dyn Fn(&Ctx) -> Result<bool, DynError> + Send + Sync>;
 
@@ -85,3 +73,20 @@ pub type FetcherFn<Ctx> = for<'a> fn(&'a Ctx, &[String]) -> Result<Value<'a>, Dy
 /// Callback type for async fetchers
 pub type AsyncFetcherFn<Ctx> =
     for<'a> fn(&'a Ctx, Arc<[String]>) -> BoxFuture<'a, Result<Value<'a>, DynError>>;
+
+pub trait ToOperator<Ctx: ?Sized>: MaybeSend + MaybeSync {
+    fn to_operator(&self, value: JsonValue) -> Result<Operator<Ctx>, DynError>;
+
+    fn json_schema(&self) -> Option<JsonValue> {
+        None
+    }
+}
+
+impl<Ctx: ?Sized, F> ToOperator<Ctx> for F
+where
+    F: Fn(JsonValue) -> Result<Operator<Ctx>, DynError> + MaybeSend + MaybeSync + 'static,
+{
+    fn to_operator(&self, value: JsonValue) -> Result<Operator<Ctx>, DynError> {
+        self(value)
+    }
+}

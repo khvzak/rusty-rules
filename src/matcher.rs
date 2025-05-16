@@ -216,7 +216,7 @@ impl<Ctx: ?Sized> Matcher<Ctx> for RegexMatcher {
             JsonValue::String(pattern) => Ok(Operator::Regex(
                 Regex::new(pattern).map_err(|err| Error::matcher("Regex", fetcher, err))?,
             )),
-            JsonValue::Array(patterns) => Self::make_regex_set(&patterns)
+            JsonValue::Array(patterns) => Self::make_regex_set(patterns)
                 .map(Operator::RegexSet)
                 .map_err(|err| Error::matcher("Regex", fetcher, err)),
             JsonValue::Object(map) => Self::parse_op(fetcher, map),
@@ -236,7 +236,7 @@ impl RegexMatcher {
     fn parse_op<Ctx: ?Sized>(fetcher: &str, map: &Map<String, JsonValue>) -> Result<Operator<Ctx>> {
         let (op, value) = check_operator!(fetcher, map);
         match (op.as_str(), value) {
-            ("in", JsonValue::Array(patterns)) => Self::make_regex_set(&patterns)
+            ("in", JsonValue::Array(patterns)) => Self::make_regex_set(patterns)
                 .map(Operator::RegexSet)
                 .map_err(|err| Error::operator(op, fetcher, err)),
             ("in", _) => operator_error!(op, fetcher, "unexpected JSON {}", value.type_name()),
@@ -423,7 +423,7 @@ impl<Ctx: ?Sized> Matcher<Ctx> for IpMatcher {
             JsonValue::String(_) => Self::make_ipnet(&[value.clone()])
                 .map(Operator::IpSet)
                 .map_err(|err| Error::matcher("Ip", fetcher, err)),
-            JsonValue::Array(addrs) => Self::make_ipnet(&addrs)
+            JsonValue::Array(addrs) => Self::make_ipnet(addrs)
                 .map(Operator::IpSet)
                 .map_err(|err| Error::matcher("Ip", fetcher, err)),
             JsonValue::Object(map) => Self::parse_op(fetcher, map),
@@ -443,7 +443,7 @@ impl IpMatcher {
     fn parse_op<Ctx: ?Sized>(fetcher: &str, map: &Map<String, JsonValue>) -> Result<Operator<Ctx>> {
         let (op, value) = check_operator!(fetcher, map);
         match (op.as_str(), value) {
-            ("in", JsonValue::Array(addrs)) => Self::make_ipnet(&addrs)
+            ("in", JsonValue::Array(addrs)) => Self::make_ipnet(addrs)
                 .map(Operator::IpSet)
                 .map_err(|err| Error::operator(op, fetcher, err)),
             ("in", _) => operator_error!(op, fetcher, "unexpected JSON {}", value.type_name()),

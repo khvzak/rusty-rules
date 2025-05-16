@@ -105,10 +105,7 @@ enum AnyFetcherFn<Ctx: ?Sized> {
 
 impl<Ctx: ?Sized> Clone for AnyFetcherFn<Ctx> {
     fn clone(&self) -> Self {
-        match self {
-            AnyFetcherFn::Sync(func) => AnyFetcherFn::Sync(*func),
-            AnyFetcherFn::Async(func) => AnyFetcherFn::Async(*func),
-        }
+        *self
     }
 }
 
@@ -138,7 +135,7 @@ impl<Ctx: ?Sized> Clone for Fetcher<Ctx> {
     fn clone(&self) -> Self {
         Fetcher {
             matcher: self.matcher.clone(),
-            func: self.func.clone(),
+            func: self.func,
         }
     }
 }

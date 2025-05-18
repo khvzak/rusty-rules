@@ -1,7 +1,7 @@
 #![cfg(not(feature = "send"))]
 
 use mlua::prelude::*;
-use rusty_rules::{Engine, Operator, StringMatcher, Value};
+use rusty_rules::{Engine, Operator, Value};
 use serde_json::json;
 
 #[test]
@@ -11,9 +11,7 @@ fn test_lua_operator() {
     let mut engine = Engine::<str>::new();
 
     // Register method fetcher
-    engine.register_fetcher("sample", StringMatcher, |_ctx, _args| {
-        Ok(Value::from("sample string"))
-    });
+    engine.register_fetcher("sample", |_ctx, _args| Ok(Value::from("sample string")));
 
     let lua2 = lua.clone();
     engine.register_operator("eval", move |value| {

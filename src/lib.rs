@@ -9,7 +9,8 @@ use serde_json::Value as JsonValue;
 // Re-export public types
 pub use error::Error;
 pub use matcher::{
-    BoolMatcher, IpMatcher, Matcher, NumberMatcher, Operator, RegexMatcher, StringMatcher,
+    BoolMatcher, DefaultMatcher, IpMatcher, Matcher, NumberMatcher, Operator, RegexMatcher,
+    StringMatcher,
 };
 pub use types::{AsyncCheckFn, AsyncFetcherFn, CheckFn, FetcherFn, ToOperator};
 pub use value::Value;
@@ -126,7 +127,7 @@ impl<Ctx: ?Sized> Clone for AnyEvalFn<Ctx> {
 }
 
 /// Holds a fetcher's required matcher type and function
-struct Fetcher<Ctx: ?Sized> {
+pub struct Fetcher<Ctx: ?Sized> {
     matcher: Arc<dyn Matcher<Ctx>>,
     func: AnyFetcherFn<Ctx>,
 }
@@ -137,6 +138,16 @@ impl<Ctx: ?Sized> Clone for Fetcher<Ctx> {
             matcher: self.matcher.clone(),
             func: self.func,
         }
+    }
+}
+
+impl<Ctx: ?Sized> Fetcher<Ctx> {
+    /// Changes the fetcher's matcher
+    pub fn with_matcher<M>(&mut self, matcher: M)
+    where
+        M: Matcher<Ctx> + 'static,
+    {
+        self.matcher = Arc::new(matcher);
     }
 }
 
@@ -170,26 +181,32 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
         }
     }
 
-    /// Registers a fetcher with its name, matcher, and function
-    pub fn register_fetcher<M>(&mut self, name: &str, matcher: M, func: FetcherFn<Ctx>)
-    where
-        M: Matcher<Ctx> + 'static,
-    {
-        let matcher = Arc::new(matcher);
-        let func = AnyFetcherFn::Sync(func);
-        let fetcher = Fetcher { matcher, func };
-        self.fetchers.insert(name.to_string(), fetcher);
+    /// Registers a fetcher with its name and function, using the default matcher
+    pub fn register_fetcher(&mut self, name: &str, func: FetcherFn<Ctx>) -> &mut Fetcher<Ctx> {
+        let fetcher = Fetcher {
+            matcher: Arc::new(DefaultMatcher),
+            func: AnyFetcherFn::Sync(func),
+        };
+        self.fetchers
+            .entry(name.to_string())
+            .insert_entry(fetcher)
+            .into_mut()
     }
 
-    /// Registers an async fetcher with its name, matcher, and function
-    pub fn register_async_fetcher<M>(&mut self, name: &str, matcher: M, func: AsyncFetcherFn<Ctx>)
-    where
-        M: Matcher<Ctx> + 'static,
-    {
-        let matcher = Arc::new(matcher);
-        let func = AnyFetcherFn::Async(func);
-        let fetcher = Fetcher { matcher, func };
-        self.fetchers.insert(name.to_string(), fetcher);
+    /// Registers an async fetcher with its name and function, using the default matcher
+    pub fn register_async_fetcher(
+        &mut self,
+        name: &str,
+        func: AsyncFetcherFn<Ctx>,
+    ) -> &mut Fetcher<Ctx> {
+        let fetcher = Fetcher {
+            matcher: Arc::new(DefaultMatcher),
+            func: AnyFetcherFn::Async(func),
+        };
+        self.fetchers
+            .entry(name.to_string())
+            .insert_entry(fetcher)
+            .into_mut()
     }
 
     /// Registers a custom operator

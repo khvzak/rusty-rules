@@ -10,16 +10,24 @@ fn test_validation() {
     let mut engine = Engine::<()>::new();
 
     // Register various matchers
-    engine.register_fetcher("string", StringMatcher, |_, _| Ok("test".into()));
-    engine.register_fetcher("number", NumberMatcher, |_, _| Ok(42.into()));
-    engine.register_fetcher("bool", BoolMatcher, |_, _| Ok(true.into()));
-    engine.register_fetcher("ip", IpMatcher, |_, _| {
-        Ok("127.0.0.1".parse::<IpAddr>()?.into())
-    });
-    engine.register_fetcher("ipv6", IpMatcher, |_, _| {
-        Ok("::1".parse::<IpAddr>()?.into())
-    });
-    engine.register_fetcher("pattern", RegexMatcher, |_, _| Ok("abc".into()));
+    engine
+        .register_fetcher("string", |_, _| Ok("test".into()))
+        .with_matcher(StringMatcher);
+    engine
+        .register_fetcher("number", |_, _| Ok(42.into()))
+        .with_matcher(NumberMatcher);
+    engine
+        .register_fetcher("bool", |_, _| Ok(true.into()))
+        .with_matcher(BoolMatcher);
+    engine
+        .register_fetcher("ip", |_, _| Ok("127.0.0.1".parse::<IpAddr>()?.into()))
+        .with_matcher(IpMatcher);
+    engine
+        .register_fetcher("ipv6", |_, _| Ok("::1".parse::<IpAddr>()?.into()))
+        .with_matcher(IpMatcher);
+    engine
+        .register_fetcher("pattern", |_, _| Ok("abc".into()))
+        .with_matcher(RegexMatcher);
 
     // Register custom operator
     engine.register_operator("custom_op", |value: serde_json::Value| {

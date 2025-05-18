@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
-use rusty_rules::{Engine, IpMatcher, NumberMatcher, Operator, RegexMatcher, StringMatcher, Value};
+use rusty_rules::{Engine, IpMatcher, NumberMatcher, Operator, RegexMatcher, Value};
 use serde_json::json;
 
 // Test context structure
@@ -42,37 +42,37 @@ fn setup_engine() -> Engine<TestContext> {
     let mut engine = Engine::new();
 
     // Register method fetcher
-    engine.register_fetcher("method", StringMatcher, |ctx: &TestContext, _args| {
+    engine.register_fetcher("method", |ctx: &TestContext, _args| {
         Ok(Value::from(&ctx.method))
     });
 
-    // Register path fetcher
-    engine.register_fetcher("path", RegexMatcher, |ctx, _args| {
-        Ok(Value::from(&ctx.path))
-    });
+    // Register regex-based path fetcher
+    engine
+        .register_fetcher("path", |ctx, _args| Ok(Value::from(&ctx.path)))
+        .with_matcher(RegexMatcher);
 
     // Register header fetcher
-    engine.register_fetcher("header", StringMatcher, |ctx, args| {
+    engine.register_fetcher("header", |ctx, args| {
         Ok(args.first().and_then(|name| ctx.headers.get(name)).into())
     });
 
     // Register param fetcher
-    engine.register_fetcher("param", StringMatcher, |ctx, args| {
+    engine.register_fetcher("param", |ctx, args| {
         Ok((args.first()).and_then(|name| ctx.params.get(name)).into())
     });
 
     // Register ip fetcher
-    engine.register_fetcher("ip", IpMatcher, |ctx, _args| Ok(Value::Ip(ctx.ip)));
+    engine
+        .register_fetcher("ip", |ctx, _args| Ok(Value::Ip(ctx.ip)))
+        .with_matcher(IpMatcher);
 
     // Register port fetcher
-    engine.register_fetcher("port", NumberMatcher, |ctx, _args| {
-        Ok(Value::from(ctx.port))
-    });
+    engine
+        .register_fetcher("port", |ctx, _args| Ok(Value::from(ctx.port)))
+        .with_matcher(NumberMatcher);
 
     // Register status fetcher
-    engine.register_fetcher("status", NumberMatcher, |ctx, _args| {
-        Ok(Value::from(ctx.status as i64))
-    });
+    engine.register_fetcher("status", |ctx, _args| Ok(Value::from(ctx.status as i64)));
 
     engine.register_operator("starts_with", |value| {
         let prefix = match value {

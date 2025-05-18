@@ -3,7 +3,7 @@ use std::net::IpAddr;
 use std::time::Duration;
 
 // use futures::future::{BoxFuture, FutureExt};
-use rusty_rules::{Engine, IpMatcher, NumberMatcher, Operator, RegexMatcher, StringMatcher, Value};
+use rusty_rules::{Engine, IpMatcher, Operator, RegexMatcher, Value};
 use serde_json::json;
 use tokio::time::sleep;
 
@@ -45,7 +45,7 @@ fn setup_async_engine() -> Engine<TestContext> {
     let mut engine = Engine::new();
 
     // Register async method fetcher
-    engine.register_async_fetcher("method", StringMatcher, |ctx: &TestContext, _args| {
+    engine.register_async_fetcher("method", |ctx: &TestContext, _args| {
         Box::pin(async move {
             // Simulate async operation with delay
             sleep(Duration::from_millis(10)).await;
@@ -54,15 +54,17 @@ fn setup_async_engine() -> Engine<TestContext> {
     });
 
     // Register async path fetcher
-    engine.register_async_fetcher("path", RegexMatcher, |ctx, _args| {
-        Box::pin(async move {
-            sleep(Duration::from_millis(10)).await;
-            Ok(Value::from(&ctx.path))
+    engine
+        .register_async_fetcher("path", |ctx, _args| {
+            Box::pin(async move {
+                sleep(Duration::from_millis(10)).await;
+                Ok(Value::from(&ctx.path))
+            })
         })
-    });
+        .with_matcher(RegexMatcher);
 
     // Register async header fetcher
-    engine.register_async_fetcher("header", StringMatcher, |ctx, args| {
+    engine.register_async_fetcher("header", |ctx, args| {
         // Clone the args to avoid lifetime issues
         let name = args.first().cloned();
         Box::pin(async move {
@@ -72,7 +74,7 @@ fn setup_async_engine() -> Engine<TestContext> {
     });
 
     // Register async param fetcher
-    engine.register_async_fetcher("param", StringMatcher, |ctx, args| {
+    engine.register_async_fetcher("param", |ctx, args| {
         let name = args.first().cloned();
         Box::pin(async move {
             sleep(Duration::from_millis(10)).await;
@@ -81,15 +83,17 @@ fn setup_async_engine() -> Engine<TestContext> {
     });
 
     // Register async ip fetcher
-    engine.register_async_fetcher("ip", IpMatcher, |ctx, _args| {
-        Box::pin(async move {
-            sleep(Duration::from_millis(10)).await;
-            Ok(Value::Ip(ctx.ip))
+    engine
+        .register_async_fetcher("ip", |ctx, _args| {
+            Box::pin(async move {
+                sleep(Duration::from_millis(10)).await;
+                Ok(Value::Ip(ctx.ip))
+            })
         })
-    });
+        .with_matcher(IpMatcher);
 
     // Register async port fetcher
-    engine.register_async_fetcher("port", NumberMatcher, |ctx, _args| {
+    engine.register_async_fetcher("port", |ctx, _args| {
         Box::pin(async move {
             sleep(Duration::from_millis(10)).await;
             Ok(Value::from(ctx.port))
@@ -97,7 +101,7 @@ fn setup_async_engine() -> Engine<TestContext> {
     });
 
     // Register async status fetcher
-    engine.register_async_fetcher("status", NumberMatcher, |ctx, _args| {
+    engine.register_async_fetcher("status", |ctx, _args| {
         Box::pin(async move {
             sleep(Duration::from_millis(10)).await;
             Ok(Value::from(ctx.status as i64))
@@ -131,6 +135,7 @@ async fn test_async_simple_conditions() {
 
     let rule = engine
         .parse_rule(&json!({
+            "path": "^/api/v1/.*",
             "method": "GET",
             "header(host)": "www.example.com",
             "port": {">": 80}

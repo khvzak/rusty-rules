@@ -8,7 +8,7 @@ use std::str::FromStr;
 use ipnet::IpNet;
 use ipnet_trie::IpnetTrie;
 use regex::{Regex, RegexSet};
-use serde_json::{Map, Value as JsonValue};
+use serde_json::{json, Map, Value as JsonValue};
 
 use crate::types::{AsyncCheckFn, BoxFuture, CheckFn, DynError, MaybeSend, MaybeSync};
 use crate::{Error, JsonValueExt as _, Result, Value};
@@ -96,6 +96,107 @@ macro_rules! check_operator {
     }};
 }
 
+const IPV4_PATTERN: &str =
+    r"(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)(?:/\d{1,2})?";
+const IPV6_PATTERN: &str = r"(?:[0-9a-f]{1,4}:){1,7}[0-9a-f]{0,4}|::(?:[0-9a-f:]{1,})?|[0-9a-f]{1,4}::(?:[0-9a-f:]{1,})?(?:/\d{1,3})?";
+
+/// A flexible matcher without strict types.
+pub struct DefaultMatcher;
+
+impl<Ctx: ?Sized> Matcher<Ctx> for DefaultMatcher {
+    fn parse(&self, value: &JsonValue) -> Result<Operator<Ctx>> {
+        match value {
+            JsonValue::Null | JsonValue::Bool(_) | JsonValue::Number(_) | JsonValue::String(_) => {
+                Ok(Operator::Equal(Value::from(value).into_static()))
+            }
+            JsonValue::Array(seq) => Ok(Operator::InSet(Self::make_hashset(seq))),
+            JsonValue::Object(map) => Self::parse_op(map),
+        }
+    }
+
+    fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> JsonValue {
+        DefaultMatcher::json_schema(self, custom_ops)
+    }
+}
+
+impl DefaultMatcher {
+    fn parse_op<Ctx: ?Sized>(map: &Map<String, JsonValue>) -> Result<Operator<Ctx>> {
+        let (op, value) = check_operator!(map);
+        match (op.as_str(), value) {
+            ("<", v) => Ok(Operator::LessThan(Value::from(v).into_static())),
+            ("<=", v) => Ok(Operator::LessThanOrEqual(Value::from(v).into_static())),
+            (">", v) => Ok(Operator::GreaterThan(Value::from(v).into_static())),
+            (">=", v) => Ok(Operator::GreaterThanOrEqual(Value::from(v).into_static())),
+            ("==", v) => Ok(Operator::Equal(Value::from(v).into_static())),
+            ("in", JsonValue::Array(arr)) => Ok(Operator::InSet(Self::make_hashset(arr))),
+            ("in", _) => operator_error!(op, "expected array, got {}", value.type_name()),
+            ("re", JsonValue::String(pattern)) => {
+                let regex = Regex::new(pattern).map_err(|err| Error::operator(op, err))?;
+                Ok(Operator::Regex(regex))
+            }
+            ("re", JsonValue::Array(patterns)) => RegexMatcher::make_regex_set(patterns)
+                .map(Operator::RegexSet)
+                .map_err(|err| Error::operator(op, err)),
+            ("re", _) => operator_error!(op, "expected string or array, got {}", value.type_name()),
+            ("ip", JsonValue::Array(arr)) => IpMatcher::make_ipnet(arr)
+                .map(Operator::IpSet)
+                .map_err(|err| Error::operator(op, err)),
+            ("ip", _) => operator_error!(op, "expected array, got {}", value.type_name()),
+            _ => Err(Error::UnknownOperator(op.clone())),
+        }
+    }
+
+    /// Creates a [`HashSet`] from a list of values.
+    fn make_hashset(arr: &[JsonValue]) -> HashSet<Value<'static>> {
+        arr.iter().map(|v| Value::from(v).into_static()).collect()
+    }
+
+    /// Provides a JSON Schema for default matcher inputs.
+    fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> JsonValue {
+        // Standard schemas
+        let any_schema = json!({ "type": ["null", "boolean", "number", "string"] });
+        let any_array_schema = json!({ "type": "array", "items": any_schema });
+        let string_schema = json!({ "type": "string" });
+        let string_array_schema = json!({ "type": "array", "items": string_schema });
+        let ip_schema = json!({ "type": "string", "pattern": format!(r"^(?:{IPV4_PATTERN}|(?i:{IPV6_PATTERN}))") });
+        let ip_array_schema = json!({ "type": "array", "items": ip_schema });
+
+        // Add operator schemas
+        let mut properties = Map::new();
+        properties.insert("<".to_string(), any_schema.clone());
+        properties.insert("<=".to_string(), any_schema.clone());
+        properties.insert(">".to_string(), any_schema.clone());
+        properties.insert(">=".to_string(), any_schema.clone());
+        properties.insert("==".to_string(), any_schema.clone());
+        properties.insert("in".to_string(), any_array_schema.clone());
+        properties.insert(
+            "re".to_string(),
+            json!({ "oneOf": [string_schema, string_array_schema] }),
+        );
+        properties.insert("ip".to_string(), ip_array_schema);
+
+        // Add custom operators
+        for (op, schema) in custom_ops {
+            properties.insert(op.to_string(), schema.clone());
+        }
+
+        json!({
+            "oneOf": [
+                any_schema,
+                any_array_schema,
+                // Object with a single operator
+                {
+                    "type": "object",
+                    "properties": properties,
+                    "additionalProperties": false,
+                    "minProperties": 1,
+                    "maxProperties": 1
+                }
+            ]
+        })
+    }
+}
+
 /// A matcher for string values.
 ///
 /// It supports custom operators.
@@ -138,7 +239,7 @@ impl StringMatcher {
             ("in", JsonValue::Array(arr)) => Self::make_hashset(arr)
                 .map(Operator::InSet)
                 .map_err(|err| Error::operator(op, err)),
-            ("in", _) => operator_error!(op, "unexpected array, got {}", value.type_name()),
+            ("in", _) => operator_error!(op, "expected array, got {}", value.type_name()),
             ("re", JsonValue::String(pattern)) => {
                 let regex = Regex::new(pattern).map_err(|err| Error::operator(op, err))?;
                 Ok(Operator::Regex(regex))
@@ -469,10 +570,7 @@ impl IpMatcher {
     /// Provides a JSON Schema for IP matcher inputs
     fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> JsonValue {
         // IP address pattern
-        let ipv4_pattern =
-            r"(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)(?:/\d{1,2})?";
-        let ipv6_pattern = r"(?:[0-9a-f]{1,4}:){1,7}[0-9a-f]{0,4}|::(?:[0-9a-f:]{1,})?|[0-9a-f]{1,4}::(?:[0-9a-f:]{1,})?(?:/\d{1,3})?";
-        let ip_pattern = format!(r"^(?:{ipv4_pattern}|(?i:{ipv6_pattern}))");
+        let ip_pattern = format!(r"^(?:{IPV4_PATTERN}|(?i:{IPV6_PATTERN}))");
 
         // Standard schemas
         let ip_schema = serde_json::json!({"type": "string", "pattern": ip_pattern});

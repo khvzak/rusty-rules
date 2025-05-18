@@ -3,7 +3,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use rusty_rules::{Engine, IpMatcher, NumberMatcher, RegexMatcher, StringMatcher, Value};
+use rusty_rules::{Engine, IpMatcher, RegexMatcher, Value};
 use serde_json::json;
 use vrl::compiler::{state::RuntimeState, Context, Program, TargetValue, TimeZone};
 use vrl::diagnostic::Formatter;
@@ -38,35 +38,39 @@ fn setup_rules_engine() -> Engine<ObjectMap> {
     let mut engine = Engine::new();
 
     // Register all fetchers
-    engine.register_fetcher("method", StringMatcher, |ctx: &ObjectMap, _args| {
+    engine.register_fetcher("method", |ctx: &ObjectMap, _args| {
         Ok(Value::from(ctx.get("method").unwrap().as_str()))
     });
 
-    engine.register_fetcher("path", RegexMatcher, |ctx, _args| {
-        Ok(Value::from(ctx.get("path").unwrap().as_str()))
-    });
+    engine
+        .register_fetcher("path", |ctx, _args| {
+            Ok(Value::from(ctx.get("path").unwrap().as_str()))
+        })
+        .with_matcher(RegexMatcher);
 
-    engine.register_fetcher("header", StringMatcher, |ctx, args| {
+    engine.register_fetcher("header", |ctx, args| {
         let headers = ctx.get("headers").unwrap().as_object().unwrap();
         let name = args.first().unwrap();
         let value = headers.get(name.as_str()).unwrap().as_str();
         Ok(Value::from(value))
     });
 
-    engine.register_fetcher("param", StringMatcher, |ctx, args| {
+    engine.register_fetcher("param", |ctx, args| {
         let params = ctx.get("params").unwrap().as_object().unwrap();
         let name = args.first().unwrap();
         let value = params.get(name.as_str()).unwrap().as_str();
         Ok(Value::from(value))
     });
 
-    engine.register_fetcher("ip", IpMatcher, |ctx, _args| {
-        let ip_str = ctx.get("ip").unwrap().as_str().unwrap();
-        let ip = IpAddr::from_str(&ip_str).unwrap();
-        Ok(Value::Ip(ip))
-    });
+    engine
+        .register_fetcher("ip", |ctx, _args| {
+            let ip_str = ctx.get("ip").unwrap().as_str().unwrap();
+            let ip = IpAddr::from_str(&ip_str).unwrap();
+            Ok(Value::Ip(ip))
+        })
+        .with_matcher(IpMatcher);
 
-    engine.register_fetcher("port", NumberMatcher, |ctx, _args| {
+    engine.register_fetcher("port", |ctx, _args| {
         let port = ctx.get("port").unwrap().as_integer();
         Ok(Value::from(port))
     });

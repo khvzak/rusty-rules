@@ -1,7 +1,15 @@
 [package]
 name = "rusty-rules"
 version = "0.1.0"
+authors = ["Aleksandr Orlenko <zxteam@pm.me>"]
 edition = "2021"
+repository = "https://github.com/khvzak/rusty-rules"
+documentation = "https://docs.rs/rusty-rules"
+readme = "README.md"
+license = "MIT"
+description = """
+A blazingly fast, flexible, and extensible rules engine written in Rust.
+"""
 
 [features]
 default = []

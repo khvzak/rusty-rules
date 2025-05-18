@@ -221,17 +221,18 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                                 Error::fetcher(&name, "fetcher is not registered")
                             })?;
 
-                            let mut operator = fetcher.matcher.parse(&name, value);
+                            let mut operator = fetcher.matcher.parse(value);
                             // Try custom operator
                             if let Err(Error::UnknownOperator(ref op)) = operator {
                                 if let Some(op_builder) = self.operators.get(op) {
                                     operator = op_builder
                                         .to_operator(&value[op])
-                                        .map_err(|err| Error::operator(op, &name, err));
+                                        .map_err(|err| Error::operator(op, err));
                                 }
                             }
+                            let operator = operator.map_err(|err| Error::matcher(&name, err))?;
                             let eval_fn =
-                                Self::compile_condition(fetcher.func, args.into(), operator?);
+                                Self::compile_condition(fetcher.func, args.into(), operator);
 
                             rules.push(Rule::leaf(eval_fn));
                         }

@@ -206,6 +206,9 @@ fn test_unknown_fetcher() {
     }));
 
     assert!(result.is_err());
+    assert!((result.unwrap_err())
+        .to_string()
+        .contains("Error in 'unknown_fetcher' fetcher: fetcher is not registered"))
 }
 
 #[test]
@@ -222,12 +225,13 @@ fn test_invalid_regex() {
     let engine = setup_engine();
 
     let result = engine.parse_rule(&json!({
-        "path": {
-            "re": "[" // invalid regex pattern
-        }
+        "path": "[" // invalid regex pattern
     }));
 
     assert!(result.is_err());
+    assert!((result.unwrap_err())
+        .to_string()
+        .contains("Error in 'path' matcher: regex parse error"))
 }
 
 #[test]
@@ -239,17 +243,23 @@ fn test_invalid_ip() {
     }));
 
     assert!(result.is_err());
+    assert!((result.unwrap_err())
+        .to_string()
+        .contains("Error in 'ip' matcher: invalid IP address"))
 }
 
 #[test]
 fn test_type_mismatch() {
     let engine = setup_engine();
 
-    assert!(engine
-        .parse_rule(&json!({
-            "port": "8080"  // port expects a number, but got string
-        }))
-        .is_err());
+    let result = engine.parse_rule(&json!({
+        "port": "8080"  // port expects a number, but got string
+    }));
+
+    assert!(result.is_err());
+    assert!((result.unwrap_err())
+        .to_string()
+        .contains("Error in 'port' matcher: unexpected JSON string"))
 }
 
 #[test]

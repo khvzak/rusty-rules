@@ -5,7 +5,7 @@ use std::hash::Hash;
 use std::net::IpAddr;
 use std::result::Result as StdResult;
 
-use serde_json::Number;
+use serde_json::{Number, Value as JsonValue};
 
 /// Represents possible values returned by fetchers
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -130,18 +130,18 @@ impl PartialOrd for Value<'_> {
     }
 }
 
-impl From<serde_json::Value> for Value<'_> {
-    fn from(value: serde_json::Value) -> Self {
+impl From<JsonValue> for Value<'_> {
+    fn from(value: JsonValue) -> Self {
         match value {
-            serde_json::Value::Null => Value::None,
-            serde_json::Value::String(s) => Value::String(Cow::Owned(s)),
-            serde_json::Value::Number(n) => Value::Number(n),
-            serde_json::Value::Bool(b) => Value::Bool(b),
-            serde_json::Value::Array(arr) => {
+            JsonValue::Null => Value::None,
+            JsonValue::String(s) => Value::String(Cow::Owned(s)),
+            JsonValue::Number(n) => Value::Number(n),
+            JsonValue::Bool(b) => Value::Bool(b),
+            JsonValue::Array(arr) => {
                 let arr = arr.into_iter().map(|v| v.into()).collect();
                 Value::Array(arr)
             }
-            serde_json::Value::Object(obj) => {
+            JsonValue::Object(obj) => {
                 let map = obj.into_iter().map(|(k, v)| (k, v.into())).collect();
                 Value::Map(map)
             }
@@ -149,15 +149,15 @@ impl From<serde_json::Value> for Value<'_> {
     }
 }
 
-impl<'a> From<&'a serde_json::Value> for Value<'a> {
-    fn from(value: &'a serde_json::Value) -> Self {
+impl<'a> From<&'a JsonValue> for Value<'a> {
+    fn from(value: &'a JsonValue) -> Self {
         match value {
-            serde_json::Value::Null => Value::None,
-            serde_json::Value::String(s) => Value::String(Cow::Borrowed(s)),
-            serde_json::Value::Number(n) => Value::Number(n.clone()),
-            serde_json::Value::Bool(b) => Value::Bool(*b),
-            serde_json::Value::Array(arr) => Value::Array(arr.iter().map(|v| v.into()).collect()),
-            serde_json::Value::Object(obj) => {
+            JsonValue::Null => Value::None,
+            JsonValue::String(s) => Value::String(Cow::Borrowed(s)),
+            JsonValue::Number(n) => Value::Number(n.clone()),
+            JsonValue::Bool(b) => Value::Bool(*b),
+            JsonValue::Array(arr) => Value::Array(arr.iter().map(|v| v.into()).collect()),
+            JsonValue::Object(obj) => {
                 let map = obj.iter().map(|(k, v)| (k.clone(), v.into())).collect();
                 Value::Map(map)
             }
@@ -196,7 +196,7 @@ impl<'a> From<Cow<'a, str>> for Value<'a> {
 impl From<i64> for Value<'_> {
     #[inline(always)]
     fn from(i: i64) -> Self {
-        Value::Number(serde_json::Number::from(i))
+        Value::Number(Number::from(i))
     }
 }
 
@@ -205,7 +205,7 @@ impl TryFrom<f64> for Value<'_> {
 
     #[inline(always)]
     fn try_from(f: f64) -> StdResult<Self, Self::Error> {
-        Ok(Value::Number(serde_json::Number::from_f64(f).ok_or(())?))
+        Ok(Value::Number(Number::from_f64(f).ok_or(())?))
     }
 }
 

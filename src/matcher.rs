@@ -75,7 +75,7 @@ pub trait Matcher<Ctx: ?Sized>: MaybeSend + MaybeSync {
     /// Returns a JSON Schema that describes valid inputs for this matcher.
     fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> JsonValue {
         let _ = custom_ops;
-        serde_json::json!({})
+        json!({})
     }
 }
 
@@ -268,11 +268,11 @@ impl StringMatcher {
     /// Provides a JSON Schema for string matcher inputs.
     fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> JsonValue {
         // Standard schemas
-        let string_schema = serde_json::json!({ "type": "string" });
-        let string_array_schema = serde_json::json!({"type": "array", "items": string_schema});
+        let string_schema = json!({ "type": "string" });
+        let string_array_schema = json!({ "type": "array", "items": string_schema });
 
         // Add operator schemas
-        let mut properties = serde_json::Map::new();
+        let mut properties = Map::new();
         properties.insert("<".to_string(), string_schema.clone());
         properties.insert("<=".to_string(), string_schema.clone());
         properties.insert(">".to_string(), string_schema.clone());
@@ -281,7 +281,7 @@ impl StringMatcher {
         properties.insert("in".to_string(), string_array_schema.clone());
         properties.insert(
             "re".to_string(),
-            serde_json::json!({"oneOf": [string_schema, string_array_schema]}),
+            json!({ "oneOf": [string_schema, string_array_schema] }),
         );
 
         // Add custom operators
@@ -289,7 +289,7 @@ impl StringMatcher {
             properties.insert(op.to_string(), schema.clone());
         }
 
-        serde_json::json!({
+        json!({
             "oneOf": [
                 string_schema,
                 string_array_schema,
@@ -331,14 +331,8 @@ impl<Ctx: ?Sized> Matcher<Ctx> for RegexMatcher {
 
 impl RegexMatcher {
     fn parse_op<Ctx: ?Sized>(map: &Map<String, JsonValue>) -> Result<Operator<Ctx>> {
-        let (op, value) = check_operator!(map);
-        match (op.as_str(), value) {
-            ("in", JsonValue::Array(patterns)) => Self::make_regex_set(patterns)
-                .map(Operator::RegexSet)
-                .map_err(|err| Error::operator(op, err)),
-            ("in", _) => operator_error!(op, "expected array, got {}", value.type_name()),
-            _ => Err(Error::UnknownOperator(op.clone())),
-        }
+        let (op, _value) = check_operator!(map);
+        Err(Error::UnknownOperator(op.clone()))
     }
 
     /// Creates a [`RegexSet`] from a list of patterns.
@@ -358,19 +352,18 @@ impl RegexMatcher {
     /// Provides a JSON Schema for regex matcher inputs.
     fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> JsonValue {
         // Standard schemas
-        let string_schema = serde_json::json!({ "type": "string" });
-        let string_array_schema = serde_json::json!({"type": "array", "items": string_schema});
+        let string_schema = json!({ "type": "string" });
+        let string_array_schema = json!({ "type": "array", "items": string_schema });
 
         // Add operator schemas
-        let mut properties = serde_json::Map::new();
-        properties.insert("in".to_string(), string_array_schema.clone());
+        let mut properties = Map::new();
 
         // Add custom operators
         for (op, schema) in custom_ops {
             properties.insert(op.to_string(), schema.clone());
         }
 
-        serde_json::json!({
+        json!({
             "oneOf": [
                 string_schema,
                 string_array_schema,
@@ -448,11 +441,11 @@ impl NumberMatcher {
     /// Provides a JSON Schema for number matcher inputs.
     fn json_schema(&self, custom_ops: &[(&str, JsonValue)]) -> JsonValue {
         // Standard schemas
-        let number_schema = serde_json::json!({ "type": "number" });
-        let number_array_schema = serde_json::json!({"type": "array", "items": number_schema});
+        let number_schema = json!({ "type": "number" });
+        let number_array_schema = json!({ "type": "array", "items": number_schema });
 
         // Add operator schemas
-        let mut properties = serde_json::Map::new();
+        let mut properties = Map::new();
         properties.insert("<".to_string(), number_schema.clone());
         properties.insert("<=".to_string(), number_schema.clone());
         properties.insert(">".to_string(), number_schema.clone());
@@ -465,7 +458,7 @@ impl NumberMatcher {
             properties.insert(op.to_string(), schema.clone());
         }
 
-        serde_json::json!({
+        json!({
             "oneOf": [
                 number_schema,
                 number_array_schema,
@@ -507,7 +500,7 @@ impl BoolMatcher {
     /// Provides a JSON Schema for boolean matcher inputs.
     fn json_schema(&self, _custom_ops: &[(&str, JsonValue)]) -> JsonValue {
         // Boolean matcher only accepts boolean values
-        serde_json::json!({"type": "boolean"})
+        json!({ "type": "boolean" })
     }
 }
 
@@ -536,14 +529,8 @@ impl<Ctx: ?Sized> Matcher<Ctx> for IpMatcher {
 
 impl IpMatcher {
     fn parse_op<Ctx: ?Sized>(map: &Map<String, JsonValue>) -> Result<Operator<Ctx>> {
-        let (op, value) = check_operator!(map);
-        match (op.as_str(), value) {
-            ("in", JsonValue::Array(addrs)) => Self::make_ipnet(addrs)
-                .map(Operator::IpSet)
-                .map_err(|err| Error::operator(op, err)),
-            ("in", _) => operator_error!(op, "expected array, got {}", value.type_name()),
-            _ => Err(Error::UnknownOperator(op.clone())),
-        }
+        let (op, _value) = check_operator!(map);
+        Err(Error::UnknownOperator(op.clone()))
     }
 
     /// Creates an [`IpnetTrie`] from a list of IP addresses or CIDR ranges.
@@ -573,19 +560,18 @@ impl IpMatcher {
         let ip_pattern = format!(r"^(?:{IPV4_PATTERN}|(?i:{IPV6_PATTERN}))");
 
         // Standard schemas
-        let ip_schema = serde_json::json!({"type": "string", "pattern": ip_pattern});
-        let ip_array_schema = serde_json::json!({"type": "array", "items": ip_schema});
+        let ip_schema = json!({ "type": "string", "pattern": ip_pattern });
+        let ip_array_schema = json!({ "type": "array", "items": ip_schema });
 
         // Add operator schemas
-        let mut properties = serde_json::Map::new();
-        properties.insert("in".to_string(), ip_array_schema.clone());
+        let mut properties = Map::new();
 
         // Add custom operators
         for (op, schema) in custom_ops {
             properties.insert(op.to_string(), schema.clone());
         }
 
-        serde_json::json!({
+        json!({
             "oneOf": [
                 ip_schema,
                 ip_array_schema,
@@ -626,6 +612,7 @@ mod tests {
     }
 
     // Helper function to parse JSON value and extract operator
+    #[track_caller]
     fn parse_op<T: Any>(matcher: impl Matcher<()>, value: JsonValue) -> (T, &'static str) {
         let type_id = TypeId::of::<T>();
         let op = (matcher.parse(&value)).expect("Failed to parse operator");
@@ -747,22 +734,9 @@ mod tests {
         assert!(re_set.is_match("world"));
         assert!(!re_set.is_match("hello world"));
 
-        // Test with 'in' operator for RegexSet
-        let (re_set, variant) =
-            parse_op::<RegexSet>(RegexMatcher, json!({"in": ["^hello$", "^world$"]}));
-        assert_eq!(variant, "RegexSet");
-        assert!(re_set.is_match("hello"));
-        assert!(re_set.is_match("world"));
-        assert!(!re_set.is_match("hello world"));
-
         // Test error cases
         assert_regex_parse_error(json!(123), "unexpected JSON number");
         assert_regex_parse_error(json!(true), "unexpected JSON boolean");
-        assert_regex_parse_error(json!({"in": "not-an-array"}), "expected array, got string");
-        assert_regex_parse_error(
-            json!({"in": [123, "pattern"]}),
-            "Error in 'in' operator: expected string, got number in regex array",
-        );
         assert_regex_parse_error(json!({"invalid": "pattern"}), "Unknown operator 'invalid'");
         assert_regex_parse_error(json!("(invalid"), "regex parse error");
     }
@@ -924,27 +898,9 @@ mod tests {
         assert_eq!(variant, "IpSet");
         assert_ip_matches(&trie, "2001:db8:1::1");
 
-        // Test with 'in' operator
-        let (trie, variant) =
-            parse_op::<IpnetTrie<()>>(IpMatcher, json!({ "in": ["192.168.1.1", "172.16.0.0/8"] }));
-        assert_eq!(variant, "IpSet");
-        assert_ip_matches(&trie, "172.16.5.6");
-        assert_ip_not_matches(&trie, "10.1.2.3");
-
         // Test error cases
         assert_ip_parse_error(json!("invalid-ip"), "invalid IP address syntax");
         assert_ip_parse_error(json!(123), "unexpected JSON number");
-        assert_ip_parse_error(
-            json!({ "in": "not-an-array" }),
-            "Error in 'in' operator: expected array, got string",
-        );
-        assert_ip_parse_error(
-            json!({ "in": ["bad addr"] }),
-            "Error in 'in' operator: invalid IP address syntax",
-        );
-        assert_ip_parse_error(
-            json!({ "not_in": ["192.168.1.1"] }),
-            "Unknown operator 'not_in'",
-        );
+        assert_ip_parse_error(json!({"invalid": "pattern"}), "Unknown operator 'invalid'");
     }
 }

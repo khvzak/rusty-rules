@@ -4,7 +4,7 @@ use std::result::Result as StdResult;
 use std::sync::Arc;
 
 use ipnet::IpNet;
-use serde_json::Value as JsonValue;
+use serde_json::{json, Map, Value as JsonValue};
 
 // Re-export public types
 pub use error::Error;
@@ -281,7 +281,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
 
     /// Builds a JSON Schema for rules, including dynamic properties.
     pub fn json_schema(&self) -> JsonValue {
-        let mut pattern_props = serde_json::Map::new();
+        let mut pattern_props = Map::new();
 
         // Get custom operator schemas
         let custom_ops: Vec<(&str, JsonValue)> = (self.operators.iter())
@@ -295,7 +295,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
             pattern_props.insert(pattern, schema);
         }
 
-        serde_json::json!({
+        json!({
             "$schema": "http://json-schema.org/draft-07/schema",
             "$ref": "#/definitions/rule_object",
             "definitions": {

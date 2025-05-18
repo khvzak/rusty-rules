@@ -641,6 +641,115 @@ mod tests {
     }
 
     #[test]
+    fn test_default_matcher() {
+        #[track_caller]
+        fn assert_default_parse_error(value: JsonValue, expected_msg: &str) {
+            assert_parse_error(DefaultMatcher, value, expected_msg);
+        }
+
+        // Test with primitive types (all should create Equal operators)
+
+        // Test with null value
+        let (v, variant) = parse_op::<Value>(DefaultMatcher, json!(null));
+        assert_eq!(variant, "Equal");
+        assert_eq!(v, Value::None);
+
+        // Test with boolean value
+        let (v, variant) = parse_op::<Value>(DefaultMatcher, json!(true));
+        assert_eq!(variant, "Equal");
+        assert_eq!(v, Value::Bool(true));
+
+        // Test with number value
+        let (v, variant) = parse_op::<Value>(DefaultMatcher, json!(42));
+        assert_eq!(variant, "Equal");
+        assert_eq!(v, Value::Number(serde_json::Number::from(42)));
+
+        // Test with string value
+        let (v, variant) = parse_op::<Value>(DefaultMatcher, json!("hello"));
+        assert_eq!(variant, "Equal");
+        assert_eq!(v, Value::String(Cow::Borrowed("hello")));
+
+        // Test with array of mixed values (creates InSet operator)
+        let (set, variant) = parse_op::<HashSet<Value>>(DefaultMatcher, json!([1, "hello", true]));
+        assert_eq!(variant, "InSet");
+        assert_eq!(set.len(), 3);
+        assert!(set.contains(&Value::Number(serde_json::Number::from(1))));
+        assert!(set.contains(&Value::String(Cow::Borrowed("hello"))));
+        assert!(set.contains(&Value::Bool(true)));
+
+        // Test comparison operators with different value types
+
+        // Less than with number
+        let (v, variant) = parse_op::<Value>(DefaultMatcher, json!({"<": 100}));
+        assert_eq!(variant, "LessThan");
+        assert_eq!(v, Value::Number(serde_json::Number::from(100)));
+
+        // Less than or equal with string
+        let (v, variant) = parse_op::<Value>(DefaultMatcher, json!({"<=": "hello"}));
+        assert_eq!(variant, "LessThanOrEqual");
+        assert_eq!(v, Value::String(Cow::Borrowed("hello")));
+
+        // Greater than with number
+        let (v, variant) = parse_op::<Value>(DefaultMatcher, json!({">": 100}));
+        assert_eq!(variant, "GreaterThan");
+        assert_eq!(v, Value::Number(serde_json::Number::from(100)));
+
+        // Greater than or equal with boolean
+        let (v, variant) = parse_op::<Value>(DefaultMatcher, json!({">=": true}));
+        assert_eq!(variant, "GreaterThanOrEqual");
+        assert_eq!(v, Value::Bool(true));
+
+        // Equal with null
+        let (v, variant) = parse_op::<Value>(DefaultMatcher, json!({"==": null}));
+        assert_eq!(variant, "Equal");
+        assert_eq!(v, Value::None);
+
+        // Test "in" operator with mixed array
+        let (set, variant) =
+            parse_op::<HashSet<Value>>(DefaultMatcher, json!({"in": [1, "hello", true, null]}));
+        assert_eq!(variant, "InSet");
+        assert_eq!(set.len(), 4);
+        assert!(set.contains(&Value::Number(serde_json::Number::from(1))));
+        assert!(set.contains(&Value::String(Cow::Borrowed("hello"))));
+        assert!(set.contains(&Value::Bool(true)));
+        assert!(set.contains(&Value::None));
+
+        // Test regex operator
+        let (re, variant) = parse_op::<Regex>(DefaultMatcher, json!({"re": "^hello$"}));
+        assert_eq!(variant, "Regex");
+        assert!(re.is_match("hello"));
+        assert!(!re.is_match("hello world"));
+
+        // Test regex set
+        let (re_set, variant) =
+            parse_op::<RegexSet>(DefaultMatcher, json!({"re": ["^hello$", "^world$"]}));
+        assert_eq!(variant, "RegexSet");
+        assert!(re_set.is_match("hello"));
+        assert!(re_set.is_match("world"));
+        assert!(!re_set.is_match("hello world"));
+
+        // Test IP set
+        let (_, variant) =
+            parse_op::<IpnetTrie<()>>(DefaultMatcher, json!({"ip": ["192.168.1.1", "10.0.0.0/8"]}));
+        assert_eq!(variant, "IpSet");
+
+        // Error cases
+        assert_default_parse_error(
+            json!({"in": true}),
+            "Error in 'in' operator: expected array, got boolean",
+        );
+        assert_default_parse_error(
+            json!({"re": true}),
+            "Error in 're' operator: expected string or array, got boolean",
+        );
+        assert_default_parse_error(
+            json!({"ip": true}),
+            "Error in 'ip' operator: expected array, got boolean",
+        );
+        assert_default_parse_error(json!({"unknown": "value"}), "Unknown operator 'unknown'");
+    }
+
+    #[test]
     fn test_string_matcher() {
         #[track_caller]
         fn assert_str_parse_error(value: JsonValue, expected_msg: &str) {

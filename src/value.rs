@@ -193,12 +193,20 @@ impl<'a> From<Cow<'a, str>> for Value<'a> {
     }
 }
 
-impl From<i64> for Value<'_> {
-    #[inline(always)]
-    fn from(i: i64) -> Self {
-        Value::Number(Number::from(i))
-    }
+macro_rules! impl_from_int {
+    ($($ty:ty),*) => {
+        $(
+            impl From<$ty> for Value<'_> {
+                #[inline(always)]
+                fn from(i: $ty) -> Self {
+                    Value::Number(Number::from(i))
+                }
+            }
+        )*
+    };
 }
+
+impl_from_int!(i8, u8, i16, u16, i32, u32, i64, u64, isize, usize);
 
 impl TryFrom<f64> for Value<'_> {
     type Error = ();

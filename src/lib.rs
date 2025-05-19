@@ -6,11 +6,11 @@
 //! ## Features
 //!
 //! - **Composable rules**: Combine conditions with `all`, `any`, and `not` logical blocks for complex rule hierarchies
-//! - **Custom fetchers**: Extract values from your own data structures with named fetchers that accept arguments
+//! - **Custom fetchers**: Extract values from data structures with named fetchers that accept arguments
 //! - **Matcher support**: String, regex, IP address, numeric, and boolean matchers out of the box
-//! - **Custom operators**: Define your own operators for advanced matching and domain-specific logic
+//! - **Custom operators**: Define operators for advanced matching and domain-specific logic
 //! - **Async support**: Register async fetchers and operators for use with async/await contexts
-//! - **JSON-schema validation**: Validate your rules with automatically generated JSON schema (requires `validation` feature)
+//! - **JSON-schema validation**: Validate rules with automatically generated JSON schema (requires `validation` feature)
 //! - **Thread-safety option**: Optional `Send`/`Sync` trait bounds with the `send` feature flag
 //! - **Performance-focused**: Designed for high-throughput rule evaluation with minimal overhead
 //!
@@ -24,7 +24,7 @@
 //! use rusty_rules::{Engine, Value};
 //! use serde_json::json;
 //!
-//! // 1. Define your context type
+//! // 1. Define context type
 //! struct MyContext {
 //!     method: String,
 //!     path: String,
@@ -35,7 +35,7 @@
 //! // 2. Create a new engine
 //! let mut engine = Engine::new();
 //!
-//! // 3. Register fetchers to extract values from your context
+//! // 3. Register fetchers to extract values from context
 //! engine.register_fetcher("method", |ctx: &MyContext, _args| {
 //!     Ok(Value::from(&ctx.method))
 //! });
@@ -400,7 +400,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
 
     /// Registers a synchronous fetcher with its name and function, using the default matcher.
     ///
-    /// A fetcher is a function that extracts values from your context type. The fetcher name is used
+    /// A fetcher is a function that extracts values from the context type. The fetcher name is used
     /// in rule definitions to reference this fetcher. By default, the `DefaultMatcher` is used, which
     /// supports basic equality and comparison operations.
     ///

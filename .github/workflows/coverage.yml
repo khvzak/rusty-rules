@@ -1,0 +1,22 @@
+name: coverage
+on: [push]
+
+jobs:
+  test:
+    name: coverage
+    runs-on: ubuntu-latest
+    container:
+      image: xd009642/tarpaulin:develop-nightly
+      options: --security-opt seccomp=unconfined
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@main
+
+      - name: Generate coverage report
+        run: |
+          cargo +nightly tarpaulin --verbose --all-features --out xml --tests --exclude-files benches/*
+
+      - name: Upload report to codecov.io
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}

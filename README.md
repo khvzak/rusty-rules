@@ -4,12 +4,14 @@ A blazingly fast, flexible, and extensible rules engine written in Rust. Evaluat
 
 ## Features
 
-- **Composable rules**: Combine conditions with `all`, `any`, and `not` logical blocks.
-- **Custom fetchers**: Extract values from your own data structures.
-- **Matcher support**: String, regex, IP address, and number matchers out of the box.
-- **Custom operators**: Easily define your own operators for advanced matching.
-- **Async support**: Register async fetchers and operators for use in async contexts.
-- **JSON-schema**: Validate your rules with automatically generated json-schema.
+- **Composable rules**: Combine conditions with `all`, `any`, and `not` logical blocks for complex rule hierarchies
+- **Custom fetchers**: Extract values from your own data structures with named fetchers that accept arguments
+- **Matcher support**: String, regex, IP address, numeric, and boolean matchers out of the box
+- **Custom operators**: Define your own operators for advanced matching and domain-specific logic
+- **Async support**: Register async fetchers and operators for use with async/await contexts
+- **JSON-schema validation**: Validate your rules with automatically generated JSON schema (requires `validation` feature)
+- **Thread-safety option**: Optional `Send`/`Sync` trait bounds with the `send` feature flag
+- **Performance-focused**: Designed for high-throughput rule evaluation with minimal overhead
 
 ## Installation
 

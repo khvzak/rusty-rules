@@ -1,3 +1,166 @@
+//! # Rusty Rules
+//!
+//! A blazingly fast, flexible, and extensible rules engine written in Rust.
+//! Evaluate complex logical rules against custom data structures using a simple JSON-based DSL.
+//!
+//! ## Features
+//!
+//! - **Composable rules**: Combine conditions with `all`, `any`, and `not` logical blocks for complex rule hierarchies
+//! - **Custom fetchers**: Extract values from your own data structures with named fetchers that accept arguments
+//! - **Matcher support**: String, regex, IP address, numeric, and boolean matchers out of the box
+//! - **Custom operators**: Define your own operators for advanced matching and domain-specific logic
+//! - **Async support**: Register async fetchers and operators for use with async/await contexts
+//! - **JSON-schema validation**: Validate your rules with automatically generated JSON schema (requires `validation` feature)
+//! - **Thread-safety option**: Optional `Send`/`Sync` trait bounds with the `send` feature flag
+//! - **Performance-focused**: Designed for high-throughput rule evaluation with minimal overhead
+//!
+//! ## Basic Usage
+//!
+//! Here's how to use Rusty Rules with a custom context type:
+//!
+//! ```rust
+//! use std::collections::HashMap;
+//! use std::net::IpAddr;
+//! use rusty_rules::{Engine, Value};
+//! use serde_json::json;
+//!
+//! // 1. Define your context type
+//! struct MyContext {
+//!     method: String,
+//!     path: String,
+//!     headers: HashMap<String, String>,
+//!     addr: IpAddr,
+//! }
+//!
+//! // 2. Create a new engine
+//! let mut engine = Engine::new();
+//!
+//! // 3. Register fetchers to extract values from your context
+//! engine.register_fetcher("method", |ctx: &MyContext, _args| {
+//!     Ok(Value::from(&ctx.method))
+//! });
+//!
+//! engine.register_fetcher("header", |ctx: &MyContext, args| {
+//!     Ok(args.first().and_then(|name| ctx.headers.get(name)).into())
+//! });
+//!
+//! engine.register_fetcher("addr", |ctx: &MyContext, _args| {
+//!     Ok(Value::Ip(ctx.addr))
+//! });
+//!
+//! // 4. Parse a rule from JSON
+//! let rule = engine.parse_rule(&json!({
+//!     "all": [
+//!         {"method": "GET"},
+//!         {"header(host)": "www.example.com"},
+//!         {"addr": {"ip": ["10.0.0.0/8"]}}
+//!     ]
+//! })).unwrap();
+//!
+//! // 5. Evaluate the rule against a context
+//! let ctx = MyContext {
+//!     method: "GET".to_string(),
+//!     path: "/api/v1/users".to_string(),
+//!     headers: {
+//!         let mut h = HashMap::new();
+//!         h.insert("host".to_string(), "www.example.com".to_string());
+//!         h
+//!     },
+//!     addr: "10.1.2.3".parse().unwrap(),
+//! };
+//!
+//! assert!(rule.evaluate(&ctx).unwrap());
+//! ```
+//!
+//! ## Rule Composition
+//!
+//! Rules can be composed using logical operators:
+//!
+//! ```json
+//! {
+//!     "all": [              // All conditions must match (logical AND)
+//!         { "method": "GET" },
+//!         { "path": { "regex": "^/api/v\\d+" } },
+//!         {
+//!             "any": [      // Any condition must match (logical OR)
+//!                 { "header(auth)": { "exists": true } },
+//!                 { "ip": { "cidr": "10.0.0.0/8" } }
+//!             ]
+//!         },
+//!         {
+//!             "not": [      // Negate the condition (logical NOT)
+//!                 { "header(user-agent)": "BadBot/1.0" }
+//!             ]
+//!         }
+//!     ]
+//! }
+//! ```
+//!
+//! ## Custom Operators
+//!
+//! You can extend the engine with custom operators:
+//!
+//! ```rust
+//! # use rusty_rules::{Engine, Operator, Value};
+//! # use serde_json::{json, Value as JsonValue};
+//! # struct MyContext {}
+//! # let mut engine = Engine::new();
+//! #
+//! # engine.register_fetcher("path", |ctx: &MyContext, _args| {
+//! #     Ok(Value::from("/api/v1/users"))
+//! # });
+//! #
+//! // Register a custom string prefix operator
+//! engine.register_operator("starts_with", |value: JsonValue| {
+//!     let prefix = value.as_str().ok_or("prefix must be a string")?.to_string();
+//!     Ok(Operator::new(move |_, value| {
+//!         Ok(value.as_str()
+//!             .map(|s| s.starts_with(&prefix))
+//!             .unwrap_or_default())
+//!     }))
+//! });
+//!
+//! // Use the custom operator in a rule
+//! let rule = engine.parse_rule(&json!({
+//!     "path": {
+//!         "starts_with": "/api/v1"
+//!     }
+//! })).unwrap();
+//!
+//! # assert!(rule.evaluate(&MyContext {}).unwrap());
+//! ```
+//!
+//! ## JSON Schema Validation
+//!
+//! With the `validation` feature enabled, you can validate rules against a dynamically generated schema:
+//!
+//! ```rust
+//! # use rusty_rules::Engine;
+//! # use serde_json::json;
+//! # struct MyContext {}
+//! # #[cfg(feature = "validation")]
+//! # fn validation_example() -> Result<(), String> {
+//! # let engine = Engine::<MyContext>::new();
+//! let rule = json!({
+//!     "all": [
+//!         {"method": "GET"},
+//!         {"path": {
+//!             "re": "^/api/v\\d+"
+//!         }}
+//!     ]
+//! });
+//!
+//! // Validate the rule against the engine's schema
+//! engine.validate_rule(&rule)?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Feature Flags
+//!
+//! - **send** - Enables `Send` and `Sync` trait bounds on all public types, making them safe to use across thread boundaries
+//! - **validation** - Enables JSON schema generation and validation functionality (adds `jsonschema` dependency)
+
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::result::Result as StdResult;
@@ -19,7 +182,13 @@ use crate::types::{AsyncEvalFn, DynError, EvalFn, MaybeSync};
 
 pub(crate) type Result<T> = StdResult<T, error::Error>;
 
-/// Represents a rule, which can be a condition or a logical combination of other rules
+/// Represents a rule, which can be a condition or a logical combination of other rules.
+///
+/// Rules can be composed using logical operators:
+/// - `Any`: At least one sub-rule must evaluate to `true`
+/// - `All`: All sub-rules must evaluate to `true`
+/// - `Not`: Negates the result of the contained rule
+/// - `Leaf`: A single condition that evaluates to a boolean
 pub enum Rule<Ctx: ?Sized + 'static> {
     Any(Vec<Self>),
     All(Vec<Self>),
@@ -49,9 +218,9 @@ impl<Ctx: ?Sized> Clone for Rule<Ctx> {
     }
 }
 
-/// Represents a condition that can be evaluated
+/// Represents a condition that can be evaluated.
 ///
-/// The condition is a wrapper around a function that takes a context and returns a boolean
+/// The condition is a wrapper around a function that takes a context and returns a boolean.
 #[doc(hidden)]
 pub struct Condition<Ctx: ?Sized>(AnyEvalFn<Ctx>);
 
@@ -92,7 +261,7 @@ impl<Ctx: ?Sized> Rule<Ctx> {
     }
 }
 
-/// Represents a fetcher key like `header(host)` with name and arguments
+/// Represents a fetcher key like `header(host)` with name and arguments.
 #[derive(Debug)]
 pub(crate) struct FetcherKey {
     name: String,
@@ -126,7 +295,12 @@ impl<Ctx: ?Sized> Clone for AnyEvalFn<Ctx> {
     }
 }
 
-/// Holds a fetcher's required matcher type and function
+/// Holds a fetcher's required matcher type and function.
+///
+/// A fetcher is responsible for extracting values from the context type.
+/// Each fetcher has:
+/// - A function that extracts values from the context
+/// - A matcher that determines how to compare these values to the rule conditions
 pub struct Fetcher<Ctx: ?Sized> {
     matcher: Arc<dyn Matcher<Ctx>>,
     func: AnyFetcherFn<Ctx>,
@@ -151,7 +325,44 @@ impl<Ctx: ?Sized> Fetcher<Ctx> {
     }
 }
 
-/// Rules engine for registering fetchers/operators and parsing rules
+/// Rules engine for registering fetchers/operators and parsing rules.
+///
+/// # Type Parameters
+///
+/// - `Ctx`: The context type that rules will be evaluated against
+///
+/// # Example
+///
+/// ```rust
+/// # use std::collections::HashMap;
+/// # use rusty_rules::{Engine, Value};
+/// # use serde_json::json;
+/// struct User {
+///     name: String,
+///     age: u32,
+///     roles: Vec<String>,
+/// }
+///
+/// let mut engine = Engine::new();
+///
+/// engine.register_fetcher("name", |user: &User, _args| {
+///     Ok(Value::from(&user.name))
+/// });
+///
+/// engine.register_fetcher("age", |user: &User, _args| {
+///     Ok(Value::from(user.age))
+/// });
+///
+/// engine.register_fetcher("has_role", |user: &User, args| {
+///     let role = args.first().ok_or("Role name required")?;
+///     Ok(Value::from(user.roles.contains(&role)))
+/// });
+///
+/// let rule = engine.parse_rule(&json!([
+///     {"age": {">=": 18}},
+///     {"has_role(admin)": true}
+/// ])).unwrap();
+/// ```
 pub struct Engine<Ctx: MaybeSync + ?Sized + 'static> {
     fetchers: HashMap<String, Fetcher<Ctx>>,
     operators: HashMap<String, Arc<dyn ToOperator<Ctx>>>,
@@ -173,7 +384,7 @@ impl<Ctx: MaybeSync + ?Sized> Clone for Engine<Ctx> {
 }
 
 impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
-    /// Creates a new rules engine
+    /// Creates a new rules engine instance.
     pub fn new() -> Self {
         Engine {
             fetchers: HashMap::new(),
@@ -181,7 +392,15 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
         }
     }
 
-    /// Registers a fetcher with its name and function, using the default matcher
+    /// Registers a synchronous fetcher with its name and function, using the default matcher.
+    ///
+    /// A fetcher is a function that extracts values from your context type. The fetcher name is used
+    /// in rule definitions to reference this fetcher. By default, the `DefaultMatcher` is used, which
+    /// supports basic equality and comparison operations.
+    ///
+    /// # Returns
+    ///
+    /// A mutable reference to the created `Fetcher`, allowing you to customize it (e.g., change the matcher)
     pub fn register_fetcher(&mut self, name: &str, func: FetcherFn<Ctx>) -> &mut Fetcher<Ctx> {
         let fetcher = Fetcher {
             matcher: Arc::new(DefaultMatcher),
@@ -193,7 +412,9 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
             .into_mut()
     }
 
-    /// Registers an async fetcher with its name and function, using the default matcher
+    /// Registers an async fetcher with its name and function, using the default matcher.
+    ///
+    /// See [`Self::register_fetcher`] for more details.
     pub fn register_async_fetcher(
         &mut self,
         name: &str,
@@ -217,12 +438,12 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
         self.operators.insert(name.to_string(), Arc::new(op));
     }
 
-    /// Parses a JSON value into a [`Rule::All`] using the registered fetchers and operators
+    /// Parses a JSON value into a [`Rule::All`] using the registered fetchers and operators.
     pub fn parse_rule(&self, value: &JsonValue) -> Result<Rule<Ctx>> {
         self.parse_rules(value).map(Rule::all)
     }
 
-    /// Parses a JSON value into a `Vec<Rule>`
+    /// Parses a JSON value into a `Vec<Rule>`.
     fn parse_rules(&self, value: &JsonValue) -> Result<Vec<Rule<Ctx>>> {
         match value {
             JsonValue::Object(map) => {
@@ -536,7 +757,11 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
 }
 
 impl<Ctx: ?Sized> Rule<Ctx> {
-    /// Evaluates a rule using the provided context
+    /// Evaluates a rule synchronously using the provided context.
+    ///
+    /// This method evaluates the rule against the provided context and returns
+    /// a boolean result indicating whether the rule matched. If the rule contains
+    /// any async operations, this method will return an error.
     pub fn evaluate(&self, context: &Ctx) -> StdResult<bool, DynError> {
         match self {
             Rule::Leaf(Condition(AnyEvalFn::Sync(eval_fn))) => eval_fn(context),
@@ -563,7 +788,11 @@ impl<Ctx: ?Sized> Rule<Ctx> {
         }
     }
 
-    /// Evaluates a rule asynchronously using the provided context
+    /// Evaluates a rule asynchronously using the provided context.
+    ///
+    /// This method evaluates the rule against the provided context and returns
+    /// a boolean result indicating whether the rule matched. It supports rules
+    /// containing both synchronous and asynchronous operations.
     pub async fn evaluate_async(&self, context: &Ctx) -> StdResult<bool, DynError> {
         match self {
             Rule::Leaf(Condition(AnyEvalFn::Sync(eval_fn))) => eval_fn(context),

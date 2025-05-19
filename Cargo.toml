@@ -11,6 +11,9 @@ description = """
 A blazingly fast, flexible, and extensible rules engine written in Rust.
 """
 
+[package.metadata.docs.rs]
+features = ["validation"]
+
 [features]
 default = []
 send = []

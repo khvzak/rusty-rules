@@ -134,7 +134,7 @@ async fn test_async_simple_conditions() {
     let ctx = create_test_context();
 
     let rule = engine
-        .parse_rule(&json!({
+        .compile_rule(&json!({
             "path": "^/api/v1/.*",
             "method": "GET",
             "header(host)": "www.example.com",
@@ -157,7 +157,7 @@ async fn test_async_logical_operators() {
     let ctx = create_test_context();
 
     let rule = engine
-        .parse_rule(&json!({
+        .compile_rule(&json!({
             "any": [
                 {"method": "POST"},
                 {
@@ -182,7 +182,7 @@ async fn test_async_custom_operator() {
     let ctx = create_test_context();
 
     let rule = engine
-        .parse_rule(&json!({
+        .compile_rule(&json!({
             "header(host)": {
                 "starts_with": "www."
             }

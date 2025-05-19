@@ -69,12 +69,12 @@ engine.register_fetcher("addr", |ctx: &MyContext, _args| {
 // ...register other fetchers...
 ```
 
-### Parse and evaluate a rule
+### Compile and evaluate a rule
 
 ```rust
 use serde_json::json;
 
-let rule = engine.parse_rule(&json!({
+let rule = engine.compile_rule(&json!({
     "method": "GET",
     "header(host)": "www.example.com",
     "addr": {

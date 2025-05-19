@@ -116,7 +116,7 @@ fn test_simple_conditions() {
     let ctx = create_test_context();
 
     let rule = engine
-        .parse_rule(&json!({
+        .compile_rule(&json!({
             "method": "GET",
             "header(host)": "www.example.com",
             "port": {">": 80}
@@ -132,7 +132,7 @@ fn test_logical_operators() {
     let ctx = create_test_context();
 
     let rule = engine
-        .parse_rule(&json!({
+        .compile_rule(&json!({
             "any": [
                 {"method": "POST"},
                 {
@@ -157,7 +157,7 @@ fn test_regex_matching() {
     let ctx = create_test_context();
 
     let rule = engine
-        .parse_rule(&json!({
+        .compile_rule(&json!({
             "path": "^/api/v1/.*$",
             "header(host)": {
                 "re": "^www\\.example\\.com$"
@@ -174,7 +174,7 @@ fn test_ip_matching() {
     let ctx = create_test_context();
 
     let rule = engine
-        .parse_rule(&json!({
+        .compile_rule(&json!({
             "ip": ["127.0.0.1", "::1/128"]
         }))
         .unwrap();
@@ -188,7 +188,7 @@ fn test_number_comparisons() {
     let ctx = create_test_context();
 
     let rule = engine
-        .parse_rule(&json!([
+        .compile_rule(&json!([
             {"port": {">=": 8000}},
             {"port": {"<": 9000}},
         ]))
@@ -201,7 +201,7 @@ fn test_number_comparisons() {
 fn test_unknown_fetcher() {
     let engine = setup_engine();
 
-    let result = engine.parse_rule(&json!({
+    let result = engine.compile_rule(&json!({
         "unknown_fetcher": "value"
     }));
 
@@ -216,7 +216,7 @@ fn test_empty_rule() {
     let engine = setup_engine();
     let ctx = create_test_context();
 
-    let rule = engine.parse_rule(&json!({})).unwrap();
+    let rule = engine.compile_rule(&json!({})).unwrap();
     assert!(rule.evaluate(&ctx).unwrap());
 }
 
@@ -224,7 +224,7 @@ fn test_empty_rule() {
 fn test_invalid_regex() {
     let engine = setup_engine();
 
-    let result = engine.parse_rule(&json!({
+    let result = engine.compile_rule(&json!({
         "path": "[" // invalid regex pattern
     }));
 
@@ -238,7 +238,7 @@ fn test_invalid_regex() {
 fn test_invalid_ip() {
     let engine = setup_engine();
 
-    let result = engine.parse_rule(&json!({
+    let result = engine.compile_rule(&json!({
         "ip": "not.an.ip.address"
     }));
 
@@ -252,7 +252,7 @@ fn test_invalid_ip() {
 fn test_type_mismatch() {
     let engine = setup_engine();
 
-    let result = engine.parse_rule(&json!({
+    let result = engine.compile_rule(&json!({
         "port": "8080"  // port expects a number, but got string
     }));
 
@@ -268,7 +268,7 @@ fn test_complex_rules() {
     let ctx = create_test_context();
 
     let rule = engine
-        .parse_rule(&json!({
+        .compile_rule(&json!({
             "all": [
                 {
                     "any": [
@@ -306,7 +306,7 @@ fn test_custom_operator() {
     let ctx = create_test_context();
 
     let rule = engine
-        .parse_rule(&json!({
+        .compile_rule(&json!({
             "header(host)": {
                 "starts_with": "www."
             }
@@ -315,7 +315,7 @@ fn test_custom_operator() {
     assert!(rule.evaluate(&ctx).unwrap());
 
     let rule = engine
-        .parse_rule(&json!({
+        .compile_rule(&json!({
             "status": {
                 "between": [200, 299]
             }
@@ -324,7 +324,7 @@ fn test_custom_operator() {
     assert!(rule.evaluate(&ctx).unwrap());
 
     let rule = engine
-        .parse_rule(&json!({
+        .compile_rule(&json!({
             "status": {
                 "between": [300, 399]
             }

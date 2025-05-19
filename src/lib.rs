@@ -48,8 +48,8 @@
 //!     Ok(Value::Ip(ctx.addr))
 //! });
 //!
-//! // 4. Parse a rule from JSON
-//! let rule = engine.parse_rule(&json!({
+//! // 4. Compile a rule from JSON
+//! let rule = engine.compile_rule(&json!({
 //!     "all": [
 //!         {"method": "GET"},
 //!         {"header(host)": "www.example.com"},
@@ -121,7 +121,7 @@
 //! });
 //!
 //! // Use the custom operator in a rule
-//! let rule = engine.parse_rule(&json!({
+//! let rule = engine.compile_rule(&json!({
 //!     "path": {
 //!         "starts_with": "/api/v1"
 //!     }
@@ -364,7 +364,7 @@ impl<Ctx: ?Sized> Fetcher<Ctx> {
 ///     Ok(Value::from(user.roles.contains(&role)))
 /// });
 ///
-/// let rule = engine.parse_rule(&json!([
+/// let rule = engine.compile_rule(&json!([
 ///     {"age": {">=": 18}},
 ///     {"has_role(admin)": true}
 /// ])).unwrap();
@@ -444,28 +444,28 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
         self.operators.insert(name.to_string(), Arc::new(op));
     }
 
-    /// Parses a JSON value into a [`Rule::All`] using the registered fetchers and operators.
-    pub fn parse_rule(&self, value: &JsonValue) -> Result<Rule<Ctx>> {
-        self.parse_rules(value).map(Rule::all)
+    /// Compiles a JSON value into a [`Rule::All`] using the registered fetchers and operators.
+    pub fn compile_rule(&self, value: &JsonValue) -> Result<Rule<Ctx>> {
+        self.compile_rules(value).map(Rule::all)
     }
 
-    /// Parses a JSON value into a `Vec<Rule>`.
-    fn parse_rules(&self, value: &JsonValue) -> Result<Vec<Rule<Ctx>>> {
+    /// Compiles a JSON value into a `Vec<Rule>`.
+    fn compile_rules(&self, value: &JsonValue) -> Result<Vec<Rule<Ctx>>> {
         match value {
             JsonValue::Object(map) => {
                 let mut rules = Vec::with_capacity(map.len());
                 for (key, value) in map {
                     match key.as_str() {
-                        "any" => rules.push(Rule::any(self.parse_rules(value)?)),
-                        "all" => rules.push(Rule::all(self.parse_rules(value)?)),
-                        "not" => rules.push(Rule::not(self.parse_rules(value)?)),
+                        "any" => rules.push(Rule::any(self.compile_rules(value)?)),
+                        "all" => rules.push(Rule::all(self.compile_rules(value)?)),
+                        "not" => rules.push(Rule::not(self.compile_rules(value)?)),
                         _ => {
                             let FetcherKey { name, args } = Self::parse_fetcher_key(key)?;
                             let fetcher = (self.fetchers.get(&name)).ok_or_else(|| {
                                 Error::fetcher(&name, "fetcher is not registered")
                             })?;
 
-                            let mut operator = fetcher.matcher.parse(value);
+                            let mut operator = fetcher.matcher.compile(value);
                             // Try custom operator
                             if let Err(Error::UnknownOperator(ref op)) = operator {
                                 if let Some(op_builder) = self.operators.get(op) {
@@ -487,7 +487,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
             JsonValue::Array(seq) => {
                 seq.iter()
                     .try_fold(Vec::with_capacity(seq.len()), |mut rules, v| {
-                        rules.extend(self.parse_rules(v)?);
+                        rules.extend(self.compile_rules(v)?);
                         Ok(rules)
                     })
             }

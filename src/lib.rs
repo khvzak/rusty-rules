@@ -162,6 +162,8 @@
 //! - **send** - Enables `Send` and `Sync` trait bounds on all public types, making them safe to use across thread boundaries
 //! - **validation** - Enables JSON schema generation and validation functionality (adds `jsonschema` dependency)
 
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::result::Result as StdResult;

@@ -135,11 +135,12 @@
 //! With the `validation` feature enabled, you can validate rules against a dynamically generated schema:
 //!
 //! ```rust
+//! # #[cfg(feature = "validation")]
+//! # {
 //! # use rusty_rules::Engine;
 //! # use serde_json::json;
 //! # struct MyContext {}
-//! # #[cfg(feature = "validation")]
-//! # fn validation_example() -> Result<(), String> {
+//! #
 //! # let engine = Engine::<MyContext>::new();
 //! let rule = json!({
 //!     "all": [
@@ -151,8 +152,8 @@
 //! });
 //!
 //! // Validate the rule against the engine's schema
-//! engine.validate_rule(&rule)?;
-//! # Ok(())
+//! let result = engine.validate_rule(&rule);
+//! # _ = result;
 //! # }
 //! ```
 //!
@@ -168,6 +169,11 @@ use std::sync::Arc;
 
 use ipnet::IpNet;
 use serde_json::{json, Map, Value as JsonValue};
+
+// Re-export commonly used types from external crates
+#[cfg(feature = "validation")]
+#[cfg_attr(docsrs, doc(cfg(feature = "validation")))]
+pub use jsonschema::ValidationError;
 
 // Re-export public types
 pub use error::Error;
@@ -492,12 +498,14 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
     /// Validates a JSON rule against dynamically generated JSON Schema of this engine.
     #[cfg(feature = "validation")]
     #[cfg_attr(docsrs, doc(cfg(feature = "validation")))]
-    pub fn validate_rule(&self, value: &JsonValue) -> StdResult<(), String> {
+    #[allow(clippy::result_large_err)]
+    pub fn validate_rule<'a>(&self, value: &'a JsonValue) -> StdResult<(), ValidationError<'a>> {
         // build dynamic JSON Schema based on registered fetchers
         let schema = self.json_schema();
-        let validator = jsonschema::draft7::new(&schema)
-            .map_err(|e| format!("failed to compile JSON Schema: {e}"))?;
-        validator.validate(value).map_err(|e| e.to_string())
+        let validator = jsonschema::options()
+            .with_pattern_options(jsonschema::PatternOptions::regex())
+            .build(&schema)?;
+        validator.validate(value)
     }
 
     /// Builds a JSON Schema for rules, including dynamic properties.

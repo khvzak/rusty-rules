@@ -183,10 +183,10 @@ pub use matcher::{
     BoolMatcher, DefaultMatcher, IpMatcher, Matcher, NumberMatcher, Operator, RegexMatcher,
     StringMatcher,
 };
-pub use types::{AsyncCheckFn, AsyncFetcherFn, CheckFn, FetcherFn, ToOperator};
+pub use types::{AsyncCheckFn, BoxFuture, CheckFn, MaybeSend, MaybeSync, ToOperator};
 pub use value::Value;
 
-use crate::types::{AsyncEvalFn, DynError, EvalFn, MaybeSync};
+use crate::types::{AsyncEvalFn, AsyncFetcherFn, DynError, EvalFn, FetcherFn};
 
 pub(crate) type Result<T> = StdResult<T, error::Error>;
 
@@ -277,17 +277,18 @@ pub(crate) struct FetcherKey {
 }
 
 enum AnyFetcherFn<Ctx: ?Sized> {
-    Sync(FetcherFn<Ctx>),
-    Async(AsyncFetcherFn<Ctx>),
+    Sync(Arc<FetcherFn<Ctx>>),
+    Async(Arc<AsyncFetcherFn<Ctx>>),
 }
 
 impl<Ctx: ?Sized> Clone for AnyFetcherFn<Ctx> {
     fn clone(&self) -> Self {
-        *self
+        match self {
+            AnyFetcherFn::Sync(func) => AnyFetcherFn::Sync(func.clone()),
+            AnyFetcherFn::Async(func) => AnyFetcherFn::Async(func.clone()),
+        }
     }
 }
-
-impl<Ctx: ?Sized> Copy for AnyFetcherFn<Ctx> {}
 
 enum AnyEvalFn<Ctx: ?Sized> {
     Sync(EvalFn<Ctx>),
@@ -318,7 +319,7 @@ impl<Ctx: ?Sized> Clone for Fetcher<Ctx> {
     fn clone(&self) -> Self {
         Fetcher {
             matcher: self.matcher.clone(),
-            func: self.func,
+            func: self.func.clone(),
         }
     }
 }
@@ -409,10 +410,16 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
     /// # Returns
     ///
     /// A mutable reference to the created `Fetcher`, allowing you to customize it (e.g., change the matcher)
-    pub fn register_fetcher(&mut self, name: &str, func: FetcherFn<Ctx>) -> &mut Fetcher<Ctx> {
+    pub fn register_fetcher<F>(&mut self, name: &str, func: F) -> &mut Fetcher<Ctx>
+    where
+        F: for<'a> Fn(&'a Ctx, &[String]) -> StdResult<Value<'a>, DynError>
+            + MaybeSend
+            + MaybeSync
+            + 'static,
+    {
         let fetcher = Fetcher {
             matcher: Arc::new(DefaultMatcher),
-            func: AnyFetcherFn::Sync(func),
+            func: AnyFetcherFn::Sync(Arc::new(func)),
         };
         self.fetchers
             .entry(name.to_string())
@@ -423,14 +430,16 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
     /// Registers an async fetcher with its name and function, using the default matcher.
     ///
     /// See [`Self::register_fetcher`] for more details.
-    pub fn register_async_fetcher(
-        &mut self,
-        name: &str,
-        func: AsyncFetcherFn<Ctx>,
-    ) -> &mut Fetcher<Ctx> {
+    pub fn register_async_fetcher<F>(&mut self, name: &str, func: F) -> &mut Fetcher<Ctx>
+    where
+        F: for<'a> Fn(&'a Ctx, Arc<[String]>) -> BoxFuture<'a, StdResult<Value<'a>, DynError>>
+            + MaybeSend
+            + MaybeSync
+            + 'static,
+    {
         let fetcher = Fetcher {
             matcher: Arc::new(DefaultMatcher),
-            func: AnyFetcherFn::Async(func),
+            func: AnyFetcherFn::Async(Arc::new(func)),
         };
         self.fetchers
             .entry(name.to_string())
@@ -477,8 +486,9 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                                 }
                             }
                             let operator = operator.map_err(|err| Error::matcher(&name, err))?;
+                            let fetcher_fn = fetcher.func.clone();
                             let eval_fn =
-                                Self::compile_condition(fetcher.func, args.into(), operator);
+                                Self::compile_condition(fetcher_fn, args.into(), operator);
 
                             rules.push(Rule::leaf(eval_fn));
                         }

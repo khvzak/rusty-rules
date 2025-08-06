@@ -1,10 +1,8 @@
-use std::sync::Arc;
-
 use serde_json::Value as JsonValue;
 
 pub use inner::*;
 
-use crate::{Operator, Value};
+use crate::Operator;
 
 #[cfg(not(feature = "send"))]
 mod inner {
@@ -19,9 +17,18 @@ mod inner {
     pub trait MaybeSync {}
     impl<T: ?Sized> MaybeSync for T {}
 
-    pub(crate) type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
+    /// An owned dynamically typed [`Future`]
+    pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 
     pub(crate) type DynError = Box<dyn StdError>;
+
+    /// Callback type for fetchers
+    pub(crate) type FetcherFn<Ctx> =
+        dyn for<'a> Fn(&'a Ctx, &[String]) -> Result<crate::Value<'a>, DynError>;
+
+    /// Callback type for async fetchers
+    pub(crate) type AsyncFetcherFn<Ctx> =
+        for<'a> fn(&'a Ctx, Arc<[String]>) -> BoxFuture<'a, Result<crate::Value<'a>, DynError>>;
 
     /// Callback type for operator check function
     pub type CheckFn<Ctx> = dyn Fn(&Ctx, crate::Value) -> Result<bool, DynError>;
@@ -49,9 +56,19 @@ mod inner {
     pub trait MaybeSync: Sync {}
     impl<T: Sync + ?Sized> MaybeSync for T {}
 
-    pub(crate) type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+    /// An owned dynamically typed [`Future`]
+    pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
     pub(crate) type DynError = Box<dyn StdError + Send + Sync>;
+
+    /// Callback type for fetchers
+    pub(crate) type FetcherFn<Ctx> =
+        dyn for<'a> Fn(&'a Ctx, &[String]) -> Result<crate::Value<'a>, DynError> + Send + Sync;
+
+    /// Callback type for async fetchers
+    pub(crate) type AsyncFetcherFn<Ctx> = dyn for<'a> Fn(&'a Ctx, Arc<[String]>) -> BoxFuture<'a, Result<crate::Value<'a>, DynError>>
+        + Send
+        + Sync;
 
     /// Callback type for operator check function
     pub type CheckFn<Ctx> = dyn Fn(&Ctx, crate::Value) -> Result<bool, DynError> + Send + Sync;
@@ -66,13 +83,6 @@ mod inner {
     pub(crate) type AsyncEvalFn<Ctx> =
         Arc<dyn for<'a> Fn(&'a Ctx) -> BoxFuture<'a, Result<bool, DynError>> + Send + Sync>;
 }
-
-/// Callback type for fetchers
-pub type FetcherFn<Ctx> = for<'a> fn(&'a Ctx, &[String]) -> Result<Value<'a>, DynError>;
-
-/// Callback type for async fetchers
-pub type AsyncFetcherFn<Ctx> =
-    for<'a> fn(&'a Ctx, Arc<[String]>) -> BoxFuture<'a, Result<Value<'a>, DynError>>;
 
 pub trait ToOperator<Ctx: ?Sized>: MaybeSend + MaybeSync {
     fn to_operator(&self, value: &JsonValue) -> Result<Operator<Ctx>, DynError>;

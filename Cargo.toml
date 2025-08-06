@@ -26,14 +26,14 @@ regex = "1.11"
 ipnet = "2"
 ipnet-trie = "0.3"
 thiserror = "2.0"
-jsonschema = { version = "0.30", optional = true }
+jsonschema = { version = "0.32", optional = true }
 
 [dev-dependencies]
-criterion = "0.6"
+criterion = "0.7"
 static_assertions = "1.1"
-mlua = { version = "0.10", features = ["lua54", "vendored"] }
+mlua = { version = "0.11", features = ["lua54", "vendored"] }
 tokio = { version = "1", features = ["full"] }
-vrl = "0.24"
+vrl = "0.25"
 
 [[bench]]
 name = "benchmark"

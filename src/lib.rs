@@ -313,6 +313,7 @@ impl<Ctx: ?Sized> Clone for AnyEvalFn<Ctx> {
 pub struct Fetcher<Ctx: ?Sized> {
     matcher: Arc<dyn Matcher<Ctx>>,
     func: AnyFetcherFn<Ctx>,
+    raw_args: bool,
 }
 
 impl<Ctx: ?Sized> Clone for Fetcher<Ctx> {
@@ -320,17 +321,25 @@ impl<Ctx: ?Sized> Clone for Fetcher<Ctx> {
         Fetcher {
             matcher: self.matcher.clone(),
             func: self.func.clone(),
+            raw_args: self.raw_args,
         }
     }
 }
 
 impl<Ctx: ?Sized> Fetcher<Ctx> {
     /// Changes the fetcher's matcher
-    pub fn with_matcher<M>(&mut self, matcher: M)
+    pub fn with_matcher<M>(&mut self, matcher: M) -> &mut Self
     where
         M: Matcher<Ctx> + 'static,
     {
         self.matcher = Arc::new(matcher);
+        self
+    }
+
+    /// Sets whether the fetcher should receive raw arguments instead of splitting them.
+    pub fn with_raw_args(&mut self, raw_args: bool) -> &mut Self {
+        self.raw_args = raw_args;
+        self
     }
 }
 
@@ -420,6 +429,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
         let fetcher = Fetcher {
             matcher: Arc::new(DefaultMatcher),
             func: AnyFetcherFn::Sync(Arc::new(func)),
+            raw_args: false,
         };
         self.fetchers
             .entry(name.to_string())
@@ -440,6 +450,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
         let fetcher = Fetcher {
             matcher: Arc::new(DefaultMatcher),
             func: AnyFetcherFn::Async(Arc::new(func)),
+            raw_args: false,
         };
         self.fetchers
             .entry(name.to_string())
@@ -475,6 +486,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                             let fetcher = (self.fetchers.get(&name)).ok_or_else(|| {
                                 Error::fetcher(&name, "fetcher is not registered")
                             })?;
+                            let args = Self::parse_fetcher_args(args.clone(), fetcher.raw_args);
 
                             let mut operator = fetcher.matcher.compile(value);
                             // Try custom operator
@@ -762,7 +774,11 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                 return Err(Error::fetcher(name, "missing closing parenthesis"));
             }
             let args_str = &args_str[..args_str.len() - 1];
-            let args = args_str.split(',').map(|s| s.trim().to_string()).collect();
+            let args = if args_str.is_empty() {
+                vec![]
+            } else {
+                vec![args_str.to_string()]
+            };
             Ok(FetcherKey {
                 name: name.to_string(),
                 args,
@@ -772,6 +788,16 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                 name: key.to_string(),
                 args: Vec::new(),
             })
+        }
+    }
+
+    /// Parses fetcher arguments, splitting them and trimming whitespace if `raw` is false.
+    fn parse_fetcher_args(mut args: Vec<String>, raw: bool) -> Vec<String> {
+        if raw || args.is_empty() {
+            args
+        } else {
+            let arg = args.pop().unwrap_or_default();
+            arg.split(',').map(|s| s.trim().to_string()).collect()
         }
     }
 }

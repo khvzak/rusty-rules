@@ -340,3 +340,23 @@ fn test_custom_operator() {
         .unwrap();
     assert!(!rule.evaluate(&ctx).unwrap());
 }
+
+#[test]
+fn test_raw_args() {
+    let mut engine = setup_engine();
+    let ctx = create_test_context();
+
+    // Register a fetcher that doesn't split arguments
+    engine
+        .register_fetcher("raw_args", |_ctx: &TestContext, args| {
+            Ok(Value::from(args.first().cloned().unwrap()))
+        })
+        .with_raw_args(true);
+
+    let rule = engine
+        .compile_rule(&json!({
+            "raw_args(key1, key2,   key3)": "key1, key2,   key3"
+        }))
+        .unwrap();
+    assert!(rule.evaluate(&ctx).unwrap());
+}

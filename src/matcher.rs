@@ -8,7 +8,7 @@ use std::str::FromStr;
 use ipnet::IpNet;
 use ipnet_trie::IpnetTrie;
 use regex::{Regex, RegexSet};
-use serde_json::{json, Map, Value as JsonValue};
+use serde_json::{Map, Value as JsonValue, json};
 
 use crate::types::{AsyncCheckFn, BoxFuture, CheckFn, DynError, MaybeSend, MaybeSync};
 use crate::{Error, JsonValueExt as _, Result, Value};
@@ -512,7 +512,10 @@ pub struct IpMatcher;
 impl<Ctx: ?Sized> Matcher<Ctx> for IpMatcher {
     fn compile(&self, value: &JsonValue) -> Result<Operator<Ctx>> {
         match value {
-            JsonValue::String(_) => Ok(Operator::IpSet(Self::make_ipnet(&[value.clone()])?)),
+            JsonValue::String(_) => {
+                let value_slice = std::slice::from_ref(value);
+                Ok(Operator::IpSet(Self::make_ipnet(value_slice)?))
+            }
             JsonValue::Array(addrs) => Ok(Operator::IpSet(Self::make_ipnet(addrs)?)),
             JsonValue::Object(map) => Self::compile_op(map),
             _ => {

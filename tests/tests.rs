@@ -206,9 +206,11 @@ fn test_unknown_fetcher() {
     }));
 
     assert!(result.is_err());
-    assert!((result.unwrap_err())
-        .to_string()
-        .contains("Error in 'unknown_fetcher' fetcher: fetcher is not registered"))
+    assert!(
+        (result.unwrap_err())
+            .to_string()
+            .contains("Error in 'unknown_fetcher' fetcher: fetcher is not registered")
+    )
 }
 
 #[test]
@@ -229,9 +231,11 @@ fn test_invalid_regex() {
     }));
 
     assert!(result.is_err());
-    assert!((result.unwrap_err())
-        .to_string()
-        .contains("Error in 'path' matcher: regex parse error"))
+    assert!(
+        (result.unwrap_err())
+            .to_string()
+            .contains("Error in 'path' matcher: regex parse error")
+    )
 }
 
 #[test]
@@ -243,9 +247,11 @@ fn test_invalid_ip() {
     }));
 
     assert!(result.is_err());
-    assert!((result.unwrap_err())
-        .to_string()
-        .contains("Error in 'ip' matcher: invalid IP address"))
+    assert!(
+        (result.unwrap_err())
+            .to_string()
+            .contains("Error in 'ip' matcher: invalid IP address")
+    )
 }
 
 #[test]
@@ -257,9 +263,11 @@ fn test_type_mismatch() {
     }));
 
     assert!(result.is_err());
-    assert!((result.unwrap_err())
-        .to_string()
-        .contains("Error in 'port' matcher: unexpected JSON string"))
+    assert!(
+        (result.unwrap_err())
+            .to_string()
+            .contains("Error in 'port' matcher: unexpected JSON string")
+    )
 }
 
 #[test]

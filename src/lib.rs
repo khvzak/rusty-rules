@@ -170,7 +170,7 @@ use std::result::Result as StdResult;
 use std::sync::Arc;
 
 use ipnet::IpNet;
-use serde_json::{json, Map, Value as JsonValue};
+use serde_json::{Map, Value as JsonValue, json};
 
 // Re-export commonly used types from external crates
 #[cfg(feature = "validation")]
@@ -478,12 +478,12 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
 
                             let mut operator = fetcher.matcher.compile(value);
                             // Try custom operator
-                            if let Err(Error::UnknownOperator(ref op)) = operator {
-                                if let Some(op_builder) = self.operators.get(op) {
-                                    operator = op_builder
-                                        .to_operator(&value[op])
-                                        .map_err(|err| Error::operator(op, err));
-                                }
+                            if let Err(Error::UnknownOperator(ref op)) = operator
+                                && let Some(op_builder) = self.operators.get(op)
+                            {
+                                operator = op_builder
+                                    .to_operator(&value[op])
+                                    .map_err(|err| Error::operator(op, err));
                             }
                             let operator = operator.map_err(|err| Error::matcher(&name, err))?;
                             let fetcher_fn = fetcher.func.clone();

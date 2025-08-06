@@ -28,7 +28,7 @@ mod inner {
 
     /// Callback type for async fetchers
     pub(crate) type AsyncFetcherFn<Ctx> =
-        for<'a> fn(&'a Ctx, Arc<[String]>) -> BoxFuture<'a, Result<crate::Value<'a>, DynError>>;
+        dyn for<'a> Fn(&'a Ctx, Arc<[String]>) -> BoxFuture<'a, Result<crate::Value<'a>, DynError>>;
 
     /// Callback type for operator check function
     pub type CheckFn<Ctx> = dyn Fn(&Ctx, crate::Value) -> Result<bool, DynError>;

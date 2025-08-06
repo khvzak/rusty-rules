@@ -146,9 +146,10 @@ async fn test_async_simple_conditions() {
 
     // Check error in sync context
     let err = rule.evaluate(&ctx).unwrap_err();
-    assert!(err
-        .to_string()
-        .contains("async operations are not supported in sync context"));
+    assert!(
+        err.to_string()
+            .contains("async operations are not supported in sync context")
+    );
 }
 
 #[tokio::test]

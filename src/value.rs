@@ -8,8 +8,9 @@ use std::result::Result as StdResult;
 use serde_json::{Number, Value as JsonValue};
 
 /// Represents possible values returned by fetchers
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Value<'a> {
+    #[default]
     None,
     String(Cow<'a, str>),
     Number(Number),

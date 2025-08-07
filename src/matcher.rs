@@ -742,17 +742,17 @@ mod tests {
         // Error cases
         assert_default_compile_error(
             json!({"in": true}),
-            "Error in 'in' operator: expected array, got boolean",
+            "error in 'in' operator: expected array, got boolean",
         );
         assert_default_compile_error(
             json!({"re": true}),
-            "Error in 're' operator: expected string or array, got boolean",
+            "error in 're' operator: expected string or array, got boolean",
         );
         assert_default_compile_error(
             json!({"ip": true}),
-            "Error in 'ip' operator: expected array, got boolean",
+            "error in 'ip' operator: expected array, got boolean",
         );
-        assert_default_compile_error(json!({"unknown": "value"}), "Unknown operator 'unknown'");
+        assert_default_compile_error(json!({"unknown": "value"}), "unknown operator 'unknown'");
     }
 
     #[test]
@@ -820,13 +820,13 @@ mod tests {
         assert_str_compile_error(json!({"in": true}), "expected array, got boolean");
         assert_str_compile_error(
             json!({"<": true}),
-            "Error in '<' operator: expected string, got boolean",
+            "error in '<' operator: expected string, got boolean",
         );
         assert_str_compile_error(
             json!({"re": true}),
-            "Error in 're' operator: expected string or array, got boolean",
+            "error in 're' operator: expected string or array, got boolean",
         );
-        assert_str_compile_error(json!({"unknown": "value"}), "Unknown operator 'unknown'");
+        assert_str_compile_error(json!({"unknown": "value"}), "unknown operator 'unknown'");
     }
 
     #[test]
@@ -852,7 +852,7 @@ mod tests {
         // Test error cases
         assert_regex_compile_error(json!(123), "unexpected JSON number");
         assert_regex_compile_error(json!(true), "unexpected JSON boolean");
-        assert_regex_compile_error(json!({"invalid": "pattern"}), "Unknown operator 'invalid'");
+        assert_regex_compile_error(json!({"invalid": "pattern"}), "unknown operator 'invalid'");
         assert_regex_compile_error(json!("(invalid"), "regex parse error");
     }
 
@@ -926,17 +926,17 @@ mod tests {
         assert_num_compile_error(json!(true), "unexpected JSON boolean");
         assert_num_compile_error(
             json!({"<": "string"}),
-            "Error in '<' operator: expected number, got string",
+            "error in '<' operator: expected number, got string",
         );
         assert_num_compile_error(
             json!({"in": true}),
-            "Error in 'in' operator: expected array, got boolean",
+            "error in 'in' operator: expected array, got boolean",
         );
         assert_num_compile_error(
             json!({"in": [1, "string"]}),
-            "Error in 'in' operator: got string in number array",
+            "error in 'in' operator: got string in number array",
         );
-        assert_num_compile_error(json!({"unknown": 100}), "Unknown operator 'unknown'");
+        assert_num_compile_error(json!({"unknown": 100}), "unknown operator 'unknown'");
     }
 
     #[test]
@@ -1016,6 +1016,6 @@ mod tests {
         // Test error cases
         assert_ip_compile_error(json!("invalid-ip"), "invalid IP address syntax");
         assert_ip_compile_error(json!(123), "unexpected JSON number");
-        assert_ip_compile_error(json!({"invalid": "pattern"}), "Unknown operator 'invalid'");
+        assert_ip_compile_error(json!({"invalid": "pattern"}), "unknown operator 'invalid'");
     }
 }

@@ -222,7 +222,7 @@ fn test_unknown_fetcher() {
     assert!(
         (result.unwrap_err())
             .to_string()
-            .contains("Error in 'unknown_fetcher' fetcher: fetcher is not registered")
+            .contains("error in 'unknown_fetcher' fetcher: fetcher is not registered")
     )
 }
 
@@ -247,7 +247,7 @@ fn test_invalid_regex() {
     assert!(
         (result.unwrap_err())
             .to_string()
-            .contains("Error in 'path' matcher: regex parse error")
+            .contains("error in 'path' matcher: regex parse error")
     )
 }
 
@@ -263,7 +263,7 @@ fn test_invalid_ip() {
     assert!(
         (result.unwrap_err())
             .to_string()
-            .contains("Error in 'ip' matcher: invalid IP address")
+            .contains("error in 'ip' matcher: invalid IP address")
     )
 }
 
@@ -279,7 +279,7 @@ fn test_type_mismatch() {
     assert!(
         (result.unwrap_err())
             .to_string()
-            .contains("Error in 'port' matcher: unexpected JSON string")
+            .contains("error in 'port' matcher: unexpected JSON string")
     )
 }
 

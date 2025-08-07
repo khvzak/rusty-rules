@@ -8,8 +8,11 @@ documentation = "https://docs.rs/rusty-rules-lua"
 license = "MIT"
 description = "Lua bindings to the rusty-rules library."
 
+[package.metadata.docs.rs]
+features = ["validation", "lua54", "vendored"]
+
 [features]
-default = ["validation"]
+default = []
 lua54 = ["mlua/lua54"]
 lua53 = ["mlua/lua53"]
 lua52 = ["mlua/lua52"]
@@ -18,10 +21,10 @@ luau = ["mlua/luau"]
 validation = ["rusty-rules/validation"]
 send = ["rusty-rules/send", "mlua/send"]
 
+# For testing purposes
+vendored = ["mlua/vendored"]
+
 [dependencies]
 rusty-rules = { path = "../", version = "0.1.1" }
 mlua = { version = "0.11", features = ["serialize"] }
 serde_json = { version = "1.0" }
-
-[dev-dependencies]
-mlua = { version = "0.11", features = ["lua54", "vendored"] }

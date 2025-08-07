@@ -23,8 +23,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Run tests
         run: |
-          cargo test -p rusty-rules-lua
-          cargo test -p rusty-rules-lua --features send
+          cargo test -p rusty-rules-lua --features validation,lua54,vendored
+          cargo test -p rusty-rules-lua --features validation,send,lua54,vendored
 
   rustfmt:
     name: Rustfmt

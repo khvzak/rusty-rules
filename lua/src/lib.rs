@@ -1,9 +1,125 @@
+//! # Rusty Rules Lua Bindings
+//!
+//! This crate provides Lua bindings for the `rusty_rules` crate, allowing you to create and
+//! evaluate rule-based conditions from within Lua scripts.
+//!
+//! ## Overview
+//!
+//! The library exposes two main types:
+//! - [`Engine`] - The main rules engine for registering fetchers and compiling rules
+//! - [`Rule`] - A compiled rule that can be evaluated against context data
+//!
+//! ## Basic Usage
+//!
+//! ```rust
+//! use mlua::prelude::*;
+//!
+//! // Register the Engine type
+//! let lua = Lua::new();
+//! let engine = lua.create_proxy::<rusty_rules_lua::Engine>()?;
+//! lua.globals().set("Engine", engine)?;
+//! ```
+//!
+//! ```lua
+//! -- Create a new engine instance
+//! local engine = Engine.new()
+//!
+//! -- Register a simple fetcher that extracts values from context
+//! engine:register_fetcher("user_attr", function(ctx, attr)
+//!     return ctx.user[attr]
+//! end)
+//!
+//! -- Compile and evaluate a rule
+//! local rule = engine:compile({["user_attr(role)"] = "admin"})
+//! local result = rule:evaluate({user = {role = "admin"}})
+//! -- `result` will be true
+//! ```
+//!
+//! ## Advanced Features
+//!
+//! ### Custom Matchers
+//!
+//! You can specify custom matchers for different data types:
+//!
+//! ```lua
+//! -- Register an IP address fetcher with IP matcher
+//! engine:register_fetcher("client_ip", { matcher = "ip" }, function(ctx)
+//!     return ctx.ip_address
+//! end)
+//!
+//! -- Use CIDR notation in rules
+//! local rule = engine:compile({ client_ip = "192.168.1.0/24" })
+//! ```
+//!
+//! Available matchers:
+//! - `"bool"` - Boolean matching
+//! - `"ip"` - IP address and CIDR range matching
+//! - `"number"` - Numeric comparison
+//! - `"regex"` or `"re"` - Regular expression matching
+//! - `"string"` - String comparison
+//!
+//! The default matcher (if unspecified) is a universal matcher for all types.
+//!
+//! ### Raw Arguments
+//!
+//! By default, fetcher arguments are split by whitespace and trimmed. You can disable this:
+//!
+//! ```lua
+//! engine:register_fetcher("raw_fetcher", { raw_args = true }, function(ctx, arg)
+//!     -- Single argument is passed as a string without modification
+//!     return arg
+//! end)
+//! ```
+//!
+//! ### Rule Validation
+//!
+//! When the `validation` feature is enabled, you can validate rules without compiling them:
+//!
+//! ```lua
+//! local is_valid, error = engine:validate({
+//!     ["get_value(key)"] = "expected_value"
+//! })
+//! -- `error` is: "Additional properties are not allowed ('get_value(key)' was unexpected)"
+//! ```
+//!
+//! Validation check the rule structure against the json schema.
+//!
+//! ### JSON Schema
+//!
+//! Get the JSON schema for valid rule structures:
+//!
+//! ```lua
+//! -- Returns JSON schema as a string
+//! local schema = engine:json_schema()
+//! ```
+
 use std::ops::{Deref, DerefMut};
 
 use mlua::prelude::*;
 use rusty_rules::{BoolMatcher, IpMatcher, NumberMatcher, RegexMatcher, StringMatcher, Value};
 
-/// A Lua wrapper for the [`rusty_rules::Engine`] that allows registering fetchers.
+/// A Lua wrapper for the [`rusty_rules::Engine`].
+///
+/// The `Engine` is the main entry point for working with rules. It allows you to:
+/// - Register custom fetchers that extract data from context
+/// - Compile rule definitions
+/// - Validate rule syntax (when `validation` feature is enabled)
+/// - Generate JSON schema for rule structure
+///
+/// # Examples
+///
+/// ```lua
+/// local engine = Engine.new()
+///
+/// -- Register a simple fetcher
+/// engine:register_fetcher("user_attr", function(ctx, attr)
+///     return ctx.user[attr]
+/// end)
+///
+/// -- Compile and evaluate a rule
+/// local rule = engine:compile({["user_attr(role)"] = "admin"})
+/// local is_admin = rule:evaluate({user = {role = "admin"}})
+/// ```
 pub struct Engine(rusty_rules::Engine<LuaValue>);
 
 impl Deref for Engine {
@@ -28,10 +144,12 @@ impl Engine {
 }
 
 impl LuaUserData for Engine {
-    fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
-        methods.add_function("new", |_, ()| Ok(Self::new()));
+    fn register(registry: &mut LuaUserDataRegistry<Self>) {
+        // Creates a new Engine instance
+        registry.add_function("new", |_, ()| Ok(Self::new()));
 
-        methods.add_method_mut(
+        // Registers a fetcher function with optional parameters
+        registry.add_method_mut(
             "register_fetcher",
             |lua,
              this,
@@ -77,7 +195,8 @@ impl LuaUserData for Engine {
             },
         );
 
-        methods.add_method("compile", |lua, this, rule: LuaValue| {
+        // Compiles a rule definition into an executable Rule
+        registry.add_method("compile", |lua, this, rule: LuaValue| {
             let rule = lua.from_value::<serde_json::Value>(rule)?;
             match this.0.compile_rule(&rule) {
                 Ok(rule) => Ok(Ok(Rule(rule))),
@@ -85,8 +204,9 @@ impl LuaUserData for Engine {
             }
         });
 
+        // Validates a rule definition without compiling it
         #[cfg(feature = "validation")]
-        methods.add_method("validate", |lua, this, rule: LuaValue| {
+        registry.add_method("validate", |lua, this, rule: LuaValue| {
             let rule = lua.from_value::<serde_json::Value>(rule)?;
             match this.0.validate_rule(&rule) {
                 Ok(_) => Ok(Ok(true)),
@@ -94,14 +214,17 @@ impl LuaUserData for Engine {
             }
         });
 
-        methods.add_method("json_schema", |_, this, ()| {
+        // Returns the JSON schema (as a string) for valid rule definitions
+        registry.add_method("json_schema", |_, this, ()| {
             let schema = this.0.json_schema();
             serde_json::to_string(&schema).into_lua_err()
         });
     }
 }
 
-/// A Lua wrapper for the [`rusty_rules::Rule`] that allows evaluating rules.
+/// A Lua wrapper for a compiled [`rusty_rules::Rule`] that can be evaluated against context data.
+///
+/// It can be efficiently evaluated multiple times against different contexts.
 pub struct Rule(rusty_rules::Rule<LuaValue>);
 
 impl Deref for Rule {
@@ -120,6 +243,7 @@ impl DerefMut for Rule {
 
 impl LuaUserData for Rule {
     fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
+        // Evaluates the rule against the provided context
         methods.add_method("evaluate", |_, this, ctx| match this.0.evaluate(&ctx) {
             Ok(decision) => Ok(Ok(decision)),
             Err(err) => Ok(Err(err.to_string())),
@@ -157,6 +281,15 @@ mod tests {
             assert(ok == nil and err:find("attempt to index a nil value"), "(4) should return an error")
             ok, err = engine:compile({["ctx_fetcher(key)"] = {op = 123}})
             assert(ok == nil and err:find("unknown operator 'op'"), "(5) should return an error")
+
+            -- Check complex struct
+            local complex_struct = { array = {1, 2, 3}, map = { key = "value" } }
+            local rule = engine:compile({
+                ["ctx_fetcher(key)"] = { ["=="] = complex_struct }
+            })
+            assert(rule:evaluate({key = complex_struct}) == true, "(6) should evaluate to true")
+            complex_struct.array[1] = 42 -- Modify to check immutability of compiled rule
+            assert(rule:evaluate({key = complex_struct}) == false, "(7) should evaluate to false")
             "#,
         )
         .exec()

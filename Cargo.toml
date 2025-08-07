@@ -11,6 +11,9 @@ description = """
 A blazingly fast, flexible, and extensible rules engine written in Rust.
 """
 
+[workspace]
+members = ["lua"]
+
 [package.metadata.docs.rs]
 features = ["validation"]
 

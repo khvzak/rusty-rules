@@ -2,8 +2,9 @@ use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::hash::Hash;
-use std::net::IpAddr;
+use std::net::{AddrParseError, IpAddr};
 use std::result::Result as StdResult;
+use std::str::FromStr;
 
 use serde_json::{Number, Value as JsonValue};
 
@@ -72,6 +73,15 @@ impl<'a> Value<'a> {
         match self {
             Value::Ip(ip) => Some(*ip),
             _ => None,
+        }
+    }
+
+    /// Converts the value to an IP address, returning an error if it cannot be converted
+    pub fn to_ip(&self) -> Result<IpAddr, AddrParseError> {
+        match self {
+            Value::String(s) => IpAddr::from_str(s),
+            Value::Ip(ip) => Ok(*ip),
+            _ => IpAddr::from_str(""), // Return an error for non-string or non-IP values
         }
     }
 

@@ -65,6 +65,9 @@ fn setup_engine() -> Engine<TestContext> {
     engine
         .register_fetcher("ip", |ctx, _args| Ok(Value::Ip(ctx.ip)))
         .with_matcher(IpMatcher);
+    engine
+        .register_fetcher("ip_str", |ctx, _args| Ok(Value::from(ctx.ip.to_string())))
+        .with_matcher(IpMatcher);
 
     // Register port fetcher
     engine
@@ -171,15 +174,25 @@ fn test_regex_matching() {
 #[test]
 fn test_ip_matching() {
     let engine = setup_engine();
-    let ctx = create_test_context();
+    let mut ctx = create_test_context();
 
     let rule = engine
         .compile_rule(&json!({
             "ip": ["127.0.0.1", "::1/128"]
         }))
         .unwrap();
-
     assert!(rule.evaluate(&ctx).unwrap());
+
+    // Check string-based IP matching
+    let rule = engine
+        .compile_rule(&json!({
+            "ip_str": ["127.0.0.1", "::1/128"]
+        }))
+        .unwrap();
+    assert!(rule.evaluate(&ctx).unwrap());
+
+    ctx.ip = "172.16.0.1".parse().unwrap();
+    assert!(!rule.evaluate(&ctx).unwrap());
 }
 
 #[test]

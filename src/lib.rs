@@ -713,7 +713,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
             // IpSet
             (AnyFetcherFn::Sync(fetcher_fn), Operator::IpSet(set)) => {
                 AnyEvalFn::Sync(Arc::new(move |ctx| {
-                    Ok((fetcher_fn(ctx, &fetcher_args)?.as_ip())
+                    Ok((fetcher_fn(ctx, &fetcher_args)?.to_ip())
                         .map(|ip| set.longest_match(&IpNet::from(ip)).is_some())
                         .unwrap_or(false))
                 }))
@@ -724,7 +724,7 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                     let set = set.clone();
                     let value = fetcher_fn(ctx, fetcher_args.clone());
                     Box::pin(async move {
-                        Ok((value.await?.as_ip())
+                        Ok((value.await?.to_ip())
                             .map(|ip| set.longest_match(&IpNet::from(ip)).is_some())
                             .unwrap_or(false))
                     })

@@ -6,19 +6,19 @@ pub enum Error {
     Json(String),
 
     /// Triggered when a fetcher specified in the JSON rule is invalid.
-    #[error("Error in '{name}' fetcher: {error}")]
+    #[error("error in '{name}' fetcher: {error}")]
     Fetcher { name: String, error: String },
 
     /// Triggered when an error in the matcher occurs when parsing it.
-    #[error("Error in '{fetcher}' matcher: {error}")]
+    #[error("error in '{fetcher}' matcher: {error}")]
     Matcher { fetcher: String, error: String },
 
     /// Triggered when an operator specified in the JSON rule isn’t registered in the engine.
-    #[error("Unknown operator '{0}'")]
+    #[error("unknown operator '{0}'")]
     UnknownOperator(String),
 
     /// Triggered when an error in the operator occurs when parsing it.
-    #[error("Error in '{name}' operator: {error}")]
+    #[error("error in '{name}' operator: {error}")]
     Operator { name: String, error: String },
 
     #[error(transparent)]

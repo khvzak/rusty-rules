@@ -284,7 +284,7 @@ fn test_type_mismatch() {
 }
 
 #[test]
-fn test_complex_rules() {
+fn test_complex_all() {
     let engine = setup_engine();
     let ctx = create_test_context();
 
@@ -319,6 +319,40 @@ fn test_complex_rules() {
         .unwrap();
 
     assert!(rule.evaluate(&ctx).unwrap());
+}
+
+#[test]
+fn test_complex_any() {
+    let engine = setup_engine();
+    let mut ctx = create_test_context();
+
+    let rule = engine
+        .compile_rule(&json!({
+            "any": [
+                {
+                    "method": "GET",
+                    "header(host)": "www.blabla.com",
+                },
+                {
+                    "not": {
+                        "header(user-agent)": "curl"
+                    },
+                    "path": "^/some/path"
+                }
+            ]
+        }))
+        .unwrap();
+
+    assert!(!rule.evaluate(&ctx).unwrap());
+
+    // Change `path` to match the second condition
+    ctx.path = "/some/path/abc".to_string();
+    assert!(rule.evaluate(&ctx).unwrap());
+
+    // Update `user-agent` to NOT match the second condition
+    ctx.headers
+        .insert("user-agent".to_string(), "curl".to_string());
+    assert!(!rule.evaluate(&ctx).unwrap());
 }
 
 #[test]

@@ -15,9 +15,12 @@
 //! use mlua::prelude::*;
 //!
 //! // Register the Engine type
+//! # fn main() -> LuaResult<()> {
 //! let lua = Lua::new();
 //! let engine = lua.create_proxy::<rusty_rules_lua::Engine>()?;
 //! lua.globals().set("Engine", engine)?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ```lua

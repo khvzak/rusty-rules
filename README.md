@@ -28,7 +28,7 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-rusty-rules = "0.1"
+rusty-rules = "0.2"
 ```
 
 ## Basic Usage

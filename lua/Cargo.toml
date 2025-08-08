@@ -25,6 +25,6 @@ send = ["rusty-rules/send", "mlua/send"]
 vendored = ["mlua/vendored"]
 
 [dependencies]
-rusty-rules = { path = "../", version = "0.1.1" }
+rusty-rules = { path = "../", version = "0.2" }
 mlua = { version = "0.11", features = ["serialize"] }
 serde_json = { version = "1.0" }

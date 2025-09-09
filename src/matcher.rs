@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fmt;
 use std::net::IpAddr;
@@ -205,7 +204,7 @@ pub struct StringMatcher;
 impl<Ctx: ?Sized> Matcher<Ctx> for StringMatcher {
     fn compile(&self, value: &JsonValue) -> Result<Operator<Ctx>> {
         match value {
-            JsonValue::String(s) => Ok(Operator::Equal(Value::String(Cow::Owned(s.clone())))),
+            JsonValue::String(s) => Ok(Operator::Equal(Value::from(s.clone()))),
             JsonValue::Array(seq) => Ok(Operator::InSet(Self::make_hashset(seq)?)),
             JsonValue::Object(map) => Self::compile_op(map),
             _ => {
@@ -256,7 +255,7 @@ impl StringMatcher {
     fn make_hashset(arr: &[JsonValue]) -> Result<HashSet<Value<'static>>> {
         arr.iter()
             .map(|v| match v {
-                JsonValue::String(s) => Ok(Value::String(Cow::Owned(s.clone()))),
+                JsonValue::String(s) => Ok(Value::from(s.clone())),
                 _ => {
                     let msg = format!("got {} in string array", v.type_name());
                     Err(Error::json(msg))
@@ -665,20 +664,20 @@ mod tests {
         // Test with number value
         let (v, variant) = compile_op::<Value>(DefaultMatcher, json!(42));
         assert_eq!(variant, "Equal");
-        assert_eq!(v, Value::Number(serde_json::Number::from(42)));
+        assert_eq!(v, Value::from(42));
 
         // Test with string value
         let (v, variant) = compile_op::<Value>(DefaultMatcher, json!("hello"));
         assert_eq!(variant, "Equal");
-        assert_eq!(v, Value::String(Cow::Borrowed("hello")));
+        assert_eq!(v, Value::from("hello"));
 
         // Test with array of mixed values (creates InSet operator)
         let (set, variant) =
             compile_op::<HashSet<Value>>(DefaultMatcher, json!([1, "hello", true]));
         assert_eq!(variant, "InSet");
         assert_eq!(set.len(), 3);
-        assert!(set.contains(&Value::Number(serde_json::Number::from(1))));
-        assert!(set.contains(&Value::String(Cow::Borrowed("hello"))));
+        assert!(set.contains(&Value::from(1)));
+        assert!(set.contains(&Value::from("hello")));
         assert!(set.contains(&Value::Bool(true)));
 
         // Test comparison operators with different value types
@@ -686,17 +685,17 @@ mod tests {
         // Less than with number
         let (v, variant) = compile_op::<Value>(DefaultMatcher, json!({"<": 100}));
         assert_eq!(variant, "LessThan");
-        assert_eq!(v, Value::Number(serde_json::Number::from(100)));
+        assert_eq!(v, Value::from(100));
 
         // Less than or equal with string
         let (v, variant) = compile_op::<Value>(DefaultMatcher, json!({"<=": "hello"}));
         assert_eq!(variant, "LessThanOrEqual");
-        assert_eq!(v, Value::String(Cow::Borrowed("hello")));
+        assert_eq!(v, Value::from("hello"));
 
         // Greater than with number
         let (v, variant) = compile_op::<Value>(DefaultMatcher, json!({">": 100}));
         assert_eq!(variant, "GreaterThan");
-        assert_eq!(v, Value::Number(serde_json::Number::from(100)));
+        assert_eq!(v, Value::from(100));
 
         // Greater than or equal with boolean
         let (v, variant) = compile_op::<Value>(DefaultMatcher, json!({">=": true}));
@@ -713,8 +712,8 @@ mod tests {
             compile_op::<HashSet<Value>>(DefaultMatcher, json!({"in": [1, "hello", true, null]}));
         assert_eq!(variant, "InSet");
         assert_eq!(set.len(), 4);
-        assert!(set.contains(&Value::Number(serde_json::Number::from(1))));
-        assert!(set.contains(&Value::String(Cow::Borrowed("hello"))));
+        assert!(set.contains(&Value::from(1)));
+        assert!(set.contains(&Value::from("hello")));
         assert!(set.contains(&Value::Bool(true)));
         assert!(set.contains(&Value::None));
 
@@ -765,43 +764,43 @@ mod tests {
         // Test equality with a string literal
         let (s, variant) = compile_op::<Value>(StringMatcher, json!("hello"));
         assert_eq!(variant, "Equal");
-        assert_eq!(s, Value::String(Cow::Borrowed("hello")));
+        assert_eq!(s, Value::from("hello"));
 
         // Test array of strings (creates InSet operator)
         let (set, variant) = compile_op::<HashSet<Value>>(StringMatcher, json!(["hello", "world"]));
         assert_eq!(variant, "InSet");
         assert_eq!(set.len(), 2);
-        assert!(set.contains(&Value::String(Cow::Borrowed("hello"))));
-        assert!(set.contains(&Value::String(Cow::Borrowed("world"))));
+        assert!(set.contains(&Value::from("hello")));
+        assert!(set.contains(&Value::from("world")));
 
         // Test comparison operators
         let (s, variant) = compile_op::<Value>(StringMatcher, json!({"<": "hello"}));
         assert_eq!(variant, "LessThan");
-        assert_eq!(s, Value::String(Cow::Borrowed("hello")));
+        assert_eq!(s, Value::from("hello"));
 
         let (s, variant) = compile_op::<Value>(StringMatcher, json!({"<=": "hello"}));
         assert_eq!(variant, "LessThanOrEqual");
-        assert_eq!(s, Value::String(Cow::Borrowed("hello")));
+        assert_eq!(s, Value::from("hello"));
 
         let (s, variant) = compile_op::<Value>(StringMatcher, json!({">": "hello"}));
         assert_eq!(variant, "GreaterThan");
-        assert_eq!(s, Value::String(Cow::Borrowed("hello")));
+        assert_eq!(s, Value::from("hello"));
 
         let (s, variant) = compile_op::<Value>(StringMatcher, json!({">=": "hello"}));
         assert_eq!(variant, "GreaterThanOrEqual");
-        assert_eq!(s, Value::String(Cow::Borrowed("hello")));
+        assert_eq!(s, Value::from("hello"));
 
         let (s, variant) = compile_op::<Value>(StringMatcher, json!({"==": "hello"}));
         assert_eq!(variant, "Equal");
-        assert_eq!(s, Value::String(Cow::Borrowed("hello")));
+        assert_eq!(s, Value::from("hello"));
 
         // Test in operator
         let (set, variant) =
             compile_op::<HashSet<Value>>(StringMatcher, json!({"in": ["hello", "world"]}));
         assert_eq!(variant, "InSet");
         assert_eq!(set.len(), 2);
-        assert!(set.contains(&Value::String(Cow::Borrowed("hello"))));
-        assert!(set.contains(&Value::String(Cow::Borrowed("world"))));
+        assert!(set.contains(&Value::from("hello")));
+        assert!(set.contains(&Value::from("world")));
 
         // Test regex operator with single pattern
         let (re, variant) = compile_op::<Regex>(StringMatcher, json!({"re": "^hello$"}));
@@ -866,60 +865,57 @@ mod tests {
         // Test equality with a number literal
         let (n, variant) = compile_op::<Value>(NumberMatcher, json!(42));
         assert_eq!(variant, "Equal");
-        assert_eq!(n, Value::Number(serde_json::Number::from(42)));
+        assert_eq!(n, Value::from(42));
 
         // Test with a decimal number
         let (n, variant) = compile_op::<Value>(NumberMatcher, json!(3.14));
         assert_eq!(variant, "Equal");
-        assert_eq!(
-            n,
-            Value::Number(serde_json::Number::from_f64(3.14).unwrap())
-        );
+        assert_eq!(n, Value::try_from(3.14).unwrap());
 
         // Test array of numbers (creates InSet operator)
         let (set, variant) = compile_op::<HashSet<Value>>(NumberMatcher, json!([1, 3]));
         assert_eq!(variant, "InSet");
         assert_eq!(set.len(), 2);
-        assert!(set.contains(&Value::Number(serde_json::Number::from(1))));
-        assert!(!set.contains(&Value::Number(serde_json::Number::from(2))));
-        assert!(set.contains(&Value::Number(serde_json::Number::from(3))));
+        assert!(set.contains(&Value::from(1)));
+        assert!(!set.contains(&Value::from(2)));
+        assert!(set.contains(&Value::from(3)));
 
         // Test comparison operators
         let (n, variant) = compile_op::<Value>(NumberMatcher, json!({"<": 100}));
         assert_eq!(variant, "LessThan");
-        assert_eq!(n, Value::Number(serde_json::Number::from(100)));
+        assert_eq!(n, Value::from(100));
 
         let (n, variant) = compile_op::<Value>(NumberMatcher, json!({"<=": 100}));
         assert_eq!(variant, "LessThanOrEqual");
-        assert_eq!(n, Value::Number(serde_json::Number::from(100)));
+        assert_eq!(n, Value::from(100));
 
         let (n, variant) = compile_op::<Value>(NumberMatcher, json!({">": 100}));
         assert_eq!(variant, "GreaterThan");
-        assert_eq!(n, Value::Number(serde_json::Number::from(100)));
+        assert_eq!(n, Value::from(100));
 
         let (n, variant) = compile_op::<Value>(NumberMatcher, json!({">=": 100}));
         assert_eq!(variant, "GreaterThanOrEqual");
-        assert_eq!(n, Value::Number(serde_json::Number::from(100)));
+        assert_eq!(n, Value::from(100));
 
         let (n, variant) = compile_op::<Value>(NumberMatcher, json!({"==": 100}));
         assert_eq!(variant, "Equal");
-        assert_eq!(n, Value::Number(serde_json::Number::from(100)));
+        assert_eq!(n, Value::from(100));
 
         // Test in operator
         let (set, variant) = compile_op::<HashSet<Value>>(NumberMatcher, json!({"in": [1, 3]}));
         assert_eq!(variant, "InSet");
         assert_eq!(set.len(), 2);
-        assert!(set.contains(&Value::Number(serde_json::Number::from(1))));
-        assert!(!set.contains(&Value::Number(serde_json::Number::from(2))));
-        assert!(set.contains(&Value::Number(serde_json::Number::from(3))));
+        assert!(set.contains(&Value::from(1)));
+        assert!(!set.contains(&Value::from(2)));
+        assert!(set.contains(&Value::from(3)));
 
         // Test in operator with decimal numbers
         let (set, variant) = compile_op::<HashSet<Value>>(NumberMatcher, json!({"in": [1.5, 3.5]}));
         assert_eq!(variant, "InSet");
         assert_eq!(set.len(), 2);
-        assert!(set.contains(&Value::Number(serde_json::Number::from_f64(1.5).unwrap())));
-        assert!(!set.contains(&Value::Number(serde_json::Number::from_f64(2.5).unwrap())));
-        assert!(set.contains(&Value::Number(serde_json::Number::from_f64(3.5).unwrap())));
+        assert!(set.contains(&Value::try_from(1.5).unwrap()));
+        assert!(!set.contains(&Value::try_from(2.5).unwrap()));
+        assert!(set.contains(&Value::try_from(3.5).unwrap()));
 
         // Test error cases
         assert_num_compile_error(json!("string"), "unexpected JSON string");

@@ -267,14 +267,6 @@ impl<Ctx: ?Sized> Rule<Ctx> {
     fn leaf(eval_fn: AnyEvalFn<Ctx>) -> Self {
         Rule::Leaf(Condition(eval_fn))
     }
-
-    #[inline(always)]
-    fn into_vec(self) -> Vec<Self> {
-        match self {
-            Rule::Any(rules) | Rule::All(rules) => rules,
-            Rule::Not(_) | Rule::Leaf(_) => vec![self],
-        }
-    }
 }
 
 /// Represents a fetcher key like `header(host)` with name and arguments.
@@ -476,14 +468,19 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
 
     /// Compiles a JSON value into a [`Rule::All`] using the registered fetchers and operators.
     pub fn compile_rule(&self, value: &JsonValue) -> Result<Rule<Ctx>> {
+        self.compile_rule_inner(value).map(Rule::all)
+    }
+
+    /// Complines a JSON value into a vector of sub-rules.
+    fn compile_rule_inner(&self, value: &JsonValue) -> Result<Vec<Rule<Ctx>>> {
         match value {
             JsonValue::Object(map) => {
                 let mut subrules = Vec::with_capacity(map.len());
                 for (key, value) in map {
                     match key.as_str() {
-                        "any" => subrules.push(Rule::any(self.compile_rule(value)?.into_vec())),
-                        "all" => subrules.push(Rule::all(self.compile_rule(value)?.into_vec())),
-                        "not" => subrules.push(Rule::not(self.compile_rule(value)?.into_vec())),
+                        "any" => subrules.push(Rule::any(self.compile_rule_inner(value)?)),
+                        "all" => subrules.push(Rule::all(self.compile_rule_inner(value)?)),
+                        "not" => subrules.push(Rule::not(self.compile_rule_inner(value)?)),
                         _ => {
                             let FetcherKey { name, args } = Self::parse_fetcher_key(key)?;
                             let fetcher = (self.fetchers.get(&name)).ok_or_else(|| {
@@ -509,14 +506,14 @@ impl<Ctx: MaybeSync + ?Sized> Engine<Ctx> {
                         }
                     }
                 }
-                Ok(Rule::all(subrules))
+                Ok(subrules)
             }
-            JsonValue::Array(seq) => (seq.iter())
-                .try_fold(Vec::with_capacity(seq.len()), |mut subrules, v| {
-                    subrules.push(self.compile_rule(v)?);
+            JsonValue::Array(seq) => {
+                (seq.iter()).try_fold(Vec::with_capacity(seq.len()), |mut subrules, inner| {
+                    subrules.push(self.compile_rule_inner(inner).map(Rule::all)?);
                     Result::Ok(subrules)
                 })
-                .map(Rule::all),
+            }
             _ => Err(Error::json("rule must be a JSON object or array")),
         }
     }

@@ -324,8 +324,32 @@ fn test_complex_all() {
 #[test]
 fn test_complex_any() {
     let engine = setup_engine();
-    let mut ctx = create_test_context();
 
+    // The rule should be correctly reduced (top-level "any" should be removed)
+    let mut ctx = create_test_context();
+    let rule = engine
+        .compile_rule(&json!({
+            "any": [
+                {
+                    "method": "GET",
+                    "header(host)": "www.blah.com", // No match
+                    "all": [
+                        {"param(a)": "1"},
+                        {"param(b)": "2"}
+                    ]
+                },
+            ]
+        }))
+        .unwrap();
+
+    assert!(!rule.evaluate(&ctx).unwrap());
+
+    // Update `host` to match the header condition
+    ctx.headers
+        .insert("host".to_string(), "www.blah.com".to_string());
+    assert!(rule.evaluate(&ctx).unwrap());
+
+    let mut ctx = create_test_context();
     let rule = engine
         .compile_rule(&json!({
             "any": [

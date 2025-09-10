@@ -1,6 +1,6 @@
 [package]
 name = "rusty-rules"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Aleksandr Orlenko <zxteam@pm.me>"]
 edition = "2024"
 repository = "https://github.com/khvzak/rusty-rules"

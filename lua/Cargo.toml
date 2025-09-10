@@ -1,6 +1,6 @@
 [package]
 name = "rusty-rules-lua"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Aleksandr Orlenko <zxteam@pm.me>"]
 edition = "2024"
 repository = "https://github.com/khvzak/rusty-rules"
@@ -25,6 +25,6 @@ send = ["rusty-rules/send", "mlua/send"]
 vendored = ["mlua/vendored"]
 
 [dependencies]
-rusty-rules = { path = "../", version = "0.2" }
+rusty-rules = { path = "../", version = "0.2.1" }
 mlua = { version = "0.11", features = ["serialize"] }
 serde_json = { version = "1.0" }

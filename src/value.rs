@@ -176,6 +176,22 @@ impl<'a> From<&'a JsonValue> for Value<'a> {
     }
 }
 
+impl From<Value<'_>> for JsonValue {
+    fn from(value: Value<'_>) -> Self {
+        match value {
+            Value::None => JsonValue::Null,
+            Value::String(s) => JsonValue::String(s.into_owned()),
+            Value::Number(n) => JsonValue::Number(n),
+            Value::Bool(b) => JsonValue::Bool(b),
+            Value::Ip(ip) => JsonValue::String(ip.to_string()),
+            Value::Array(arr) => JsonValue::Array(arr.into_iter().map(|v| v.into()).collect()),
+            Value::Map(map) => {
+                JsonValue::Object(map.into_iter().map(|(k, v)| (k, v.into())).collect())
+            }
+        }
+    }
+}
+
 impl From<String> for Value<'_> {
     #[inline(always)]
     fn from(s: String) -> Self {
@@ -259,5 +275,104 @@ impl<'a, T: Into<Value<'a>>> From<Vec<T>> for Value<'a> {
     #[inline(always)]
     fn from(arr: Vec<T>) -> Self {
         Value::Array(arr.into_iter().map(|v| v.into()).collect())
+    }
+}
+
+impl<'a, T: Into<Value<'a>>> From<BTreeMap<String, T>> for Value<'a> {
+    #[inline(always)]
+    fn from(map: BTreeMap<String, T>) -> Self {
+        Value::Map(map.into_iter().map(|(k, v)| (k, v.into())).collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_value() {
+        // None value
+        assert_eq!(Value::None, Value::None);
+
+        // String value
+        let val = Value::from("true").into_static();
+        assert_eq!(val.as_str(), Some("true"));
+        assert_eq!(val.as_i64(), None);
+        assert_eq!(val.as_f64(), None);
+        assert_eq!(val.as_bool(), None);
+        assert!(val.to_ip().is_err());
+        assert!(Value::from("127.0.0.1").to_ip().is_ok());
+        assert!(Value::from("0") < Value::from("1"));
+
+        // Number value
+        let val = Value::from(42).into_static();
+        assert_eq!(val.as_str(), None);
+        assert_eq!(val.as_i64(), Some(42));
+        assert_eq!(val.as_f64(), Some(42.0));
+        assert_eq!(val.as_bool(), None);
+        assert!(val.to_ip().is_err());
+        assert!(Value::from(42) < Value::from(43));
+        assert!(Value::try_from(0.001).unwrap() > Value::from(0));
+
+        // Bool value
+        let val = Value::from(true).into_static();
+        assert_eq!(val.as_str(), None);
+        assert_eq!(val.as_i64(), None);
+        assert_eq!(val.as_f64(), None);
+        assert_eq!(val.as_bool(), Some(true));
+        assert!(val.to_ip().is_err());
+        assert!(Value::from(false) < Value::from(true));
+
+        // IP value
+        let val = Value::from(IpAddr::from_str("127.0.0.1").unwrap()).into_static();
+        assert_eq!(val.as_str(), None);
+        assert_eq!(val.as_i64(), None);
+        assert_eq!(val.as_f64(), None);
+        assert_eq!(val.as_bool(), None);
+        assert_eq!(val.to_ip().unwrap(), "127.0.0.1".parse::<IpAddr>().unwrap());
+        assert!(
+            Value::from("127.0.0.1".parse::<IpAddr>().unwrap())
+                < Value::from("127.0.0.2".parse::<IpAddr>().unwrap())
+        );
+
+        // Array value
+        let mut val = Value::from(vec!["a", "b", "c"]).into_static();
+        assert_eq!(val.as_array().unwrap().len(), 3);
+        assert_eq!(val.as_map(), None);
+        if let Some(arr) = val.as_array_mut() {
+            arr.push(Value::from("d"));
+        }
+        assert_eq!(val.as_array().unwrap().len(), 4);
+        assert!(Value::from(vec![1, 2, 3]) < Value::from(vec![1, 2, 4]));
+
+        // Map value
+        let mut val = Value::from(BTreeMap::from_iter(vec![
+            ("key1".to_string(), Value::from("value1")),
+            ("key2".to_string(), Value::from(42)),
+        ]))
+        .into_static();
+        assert_eq!(val.as_map().unwrap().len(), 2);
+        assert_eq!(val.as_array(), None);
+        if let Some(m) = val.as_map_mut() {
+            m.insert("key3".to_string(), Value::from(true));
+        }
+        assert_eq!(val.as_map().unwrap().len(), 3);
+        assert!(
+            Value::from(BTreeMap::from_iter(vec![("a".to_string(), Value::from(1))]))
+                < Value::from(BTreeMap::from_iter(vec![("a".to_string(), Value::from(2))]))
+        );
+
+        // From/To serde_json::Value
+        let json_val: JsonValue = serde_json::json!({
+            "string": "value",
+            "number": 42,
+            "bool": true,
+            "array": [1, 2, 3],
+            "map": { "key": "value" },
+            "null": null
+        });
+        assert_eq!(Value::from(&json_val), Value::from(json_val.clone()));
+        let back_to_json: JsonValue = Value::from(json_val.clone()).into();
+        assert_eq!(back_to_json, json_val);
     }
 }
